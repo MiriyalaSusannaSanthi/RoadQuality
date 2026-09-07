@@ -43,9 +43,12 @@ CORS(
     ]
 )
 
+
 @app.before_request
 def handle_preflight():
+
     if request.method == "OPTIONS":
+
         return "", 204
 
 
@@ -55,13 +58,27 @@ def handle_preflight():
 
 try:
 
-    ox.settings.requests_timeout = 60
+    ox.settings.requests_timeout = 30
 
     ox.settings.use_cache = True
 
 except Exception:
 
     pass
+
+
+# ============================================================
+# HTTP SESSION
+# ============================================================
+
+HTTP_SESSION = requests.Session()
+
+HTTP_SESSION.headers.update({
+
+    "User-Agent":
+        "RoadQuality/2.0 (AI road quality route recommendation project)"
+
+})
 
 
 # ============================================================
@@ -100,13 +117,10 @@ def print_step(
     )
 
     print(
-
         f"[{request_id}] "
         f"[{elapsed:8.2f}s] "
         f"{message}",
-
         flush=True
-
     )
 
 
@@ -121,6 +135,7 @@ def make_graph_cache_key(
     destination_lon,
     buffer_km
 ):
+
     return (
         round(float(source_lat), 4),
         round(float(source_lon), 4),
@@ -134,25 +149,255 @@ def make_graph_cache_key(
 # HELPER - STRAIGHT-LINE DISTANCE
 # ============================================================
 
-def haversine_km(lat1, lon1, lat2, lon2):
+def haversine_km(
+    lat1,
+    lon1,
+    lat2,
+    lon2
+):
+
     radius = 6371.0
 
     p1 = math.radians(float(lat1))
+
     p2 = math.radians(float(lat2))
 
-    dlat = math.radians(float(lat2) - float(lat1))
-    dlon = math.radians(float(lon2) - float(lon1))
+    dlat = math.radians(
+        float(lat2) - float(lat1)
+    )
+
+    dlon = math.radians(
+        float(lon2) - float(lon1)
+    )
 
     a = (
         math.sin(dlat / 2) ** 2
-        + math.cos(p1)
-        * math.cos(p2)
-        * math.sin(dlon / 2) ** 2
+        +
+        math.cos(p1)
+        *
+        math.cos(p2)
+        *
+        math.sin(dlon / 2) ** 2
     )
 
-    return radius * 2 * math.asin(
-        math.sqrt(max(0.0, min(1.0, a)))
+    return (
+        radius
+        *
+        2
+        *
+        math.asin(
+            math.sqrt(
+                max(
+                    0.0,
+                    min(
+                        1.0,
+                        a
+                    )
+                )
+            )
+        )
     )
+
+
+# ============================================================
+# DIRECT NOMINATIM GEOCODING
+# ============================================================
+
+def geocode_place(
+    place,
+    request_id=None,
+    request_start=None
+):
+    """
+    Controlled Nominatim geocoder.
+
+    We intentionally do NOT use ox.geocode() here because
+    OSMnx can retry internally for a long time when Nominatim
+    responds slowly or with an error.
+
+    This function has:
+        - explicit timeout
+        - explicit User-Agent
+        - limited retry count
+        - India country restriction
+    """
+
+    if not place:
+
+        raise ValueError(
+            "Location cannot be empty."
+        )
+
+
+    print(
+        f"Geocoding location: {place}",
+        flush=True
+    )
+
+
+    url = (
+        "https://nominatim.openstreetmap.org/search"
+    )
+
+
+    params = {
+
+        "q":
+            place,
+
+        "format":
+            "json",
+
+        "addressdetails":
+            1,
+
+        "limit":
+            1,
+
+        "countrycodes":
+            "in"
+
+    }
+
+
+    last_error = None
+
+
+    for attempt in range(1, 3):
+
+        try:
+
+            print(
+                f"Nominatim attempt {attempt}/2...",
+                flush=True
+            )
+
+
+            response = HTTP_SESSION.get(
+
+                url,
+
+                params=params,
+
+                timeout=10
+
+            )
+
+
+            print(
+                f"Nominatim HTTP status: "
+                f"{response.status_code}",
+                flush=True
+            )
+
+
+            response.raise_for_status()
+
+
+            results = response.json()
+
+
+            if not results:
+
+                raise ValueError(
+                    f"Location not found: {place}"
+                )
+
+
+            first = results[0]
+
+
+            latitude = float(
+                first["lat"]
+            )
+
+
+            longitude = float(
+                first["lon"]
+            )
+
+
+            display_name = (
+                first.get(
+                    "display_name",
+                    place
+                )
+                or place
+            )
+
+
+            print(
+                f"Geocoded successfully: "
+                f"{display_name}",
+                flush=True
+            )
+
+
+            print(
+                f"Coordinates: "
+                f"{latitude:.6f}, "
+                f"{longitude:.6f}",
+                flush=True
+            )
+
+
+            return (
+                latitude,
+                longitude
+            )
+
+
+        except requests.Timeout as e:
+
+            last_error = e
+
+            print(
+                f"Nominatim timeout on attempt "
+                f"{attempt}.",
+                flush=True
+            )
+
+
+        except requests.RequestException as e:
+
+            last_error = e
+
+            print(
+                f"Nominatim request error: "
+                f"{e}",
+                flush=True
+            )
+
+
+        except (
+            ValueError,
+            KeyError,
+            TypeError
+        ) as e:
+
+            last_error = e
+
+            print(
+                f"Geocoding data error: "
+                f"{e}",
+                flush=True
+            )
+
+
+        if attempt < 2:
+
+            print(
+                "Waiting briefly before retry...",
+                flush=True
+            )
+
+            time.sleep(1)
+
+
+    raise RuntimeError(
+        f"Could not geocode '{place}'. "
+        f"Please try a more specific location."
+    ) from last_error
 
 
 # ============================================================
@@ -167,42 +412,56 @@ def get_road_network(
     request_id,
     request_start
 ):
-    """
-    Download only a corridor around the requested route instead
-    of downloading a large rectangular bounding box.
 
-    This dramatically reduces OSM download size for long routes.
+    """
+    Download only a corridor around the requested route.
+
+    This avoids downloading an unnecessarily large rectangular
+    OSM area.
     """
 
     straight_distance_km = haversine_km(
+
         source_lat,
         source_lon,
+
         destination_lat,
         destination_lon
+
     )
 
-    # Adaptive corridor width.
-    #
-    # Short routes: about 2 km
-    # Medium routes: about 3-6 km
-    # Long routes: capped at 10 km
-    #
-    # This is deliberately a corridor, not a giant rectangle.
+
+    # --------------------------------------------------------
+    # ADAPTIVE CORRIDOR WIDTH
+    # --------------------------------------------------------
+
     buffer_km = max(
+
         2.0,
+
         min(
+
             10.0,
+
             straight_distance_km * 0.05
+
         )
+
     )
+
 
     cache_key = make_graph_cache_key(
+
         source_lat,
         source_lon,
+
         destination_lat,
         destination_lon,
+
         buffer_km
+
     )
+
 
     # --------------------------------------------------------
     # CACHE
@@ -211,211 +470,357 @@ def get_road_network(
     if cache_key in GRAPH_CACHE:
 
         print_step(
+
             request_id,
             request_start,
+
             "STEP 5A - Using cached OSM road corridor"
+
         )
 
         return GRAPH_CACHE[cache_key]
 
+
     print_step(
+
         request_id,
         request_start,
+
         "STEP 5A - Downloading dynamic OSM road corridor"
+
     )
 
-    print(
-        f"\nStraight-line distance: {straight_distance_km:.2f} km",
-        flush=True
-    )
 
     print(
-        f"OSM corridor buffer: {buffer_km:.2f} km",
+
+        f"\nStraight-line distance: "
+        f"{straight_distance_km:.2f} km",
+
         flush=True
+
     )
+
+
+    print(
+
+        f"OSM corridor buffer: "
+        f"{buffer_km:.2f} km",
+
+        flush=True
+
+    )
+
 
     network_start = time.perf_counter()
 
+
     # --------------------------------------------------------
-    # Convert approximate km buffer to degrees.
-    #
-    # This is suitable for a route corridor at the geographic
-    # scale used by RoadQuality.
+    # CONVERT KM TO DEGREES
     # --------------------------------------------------------
 
     buffer_lat = buffer_km / 111.0
 
+
     mean_lat = (
+
         float(source_lat)
-        + float(destination_lat)
+
+        +
+
+        float(destination_lat)
+
     ) / 2.0
 
+
     cos_lat = max(
+
         0.20,
-        abs(math.cos(math.radians(mean_lat)))
+
+        abs(
+            math.cos(
+                math.radians(
+                    mean_lat
+                )
+            )
+        )
+
     )
 
-    buffer_lon = buffer_km / (
-        111.0 * cos_lat
+
+    buffer_lon = (
+
+        buffer_km
+
+        /
+
+        (
+            111.0
+            *
+            cos_lat
+        )
+
     )
+
 
     # --------------------------------------------------------
-    # Build straight source -> destination corridor.
+    # BUILD SOURCE -> DESTINATION LINE
     # --------------------------------------------------------
 
     route_line = LineString(
+
         [
+
             (
                 float(source_lon),
                 float(source_lat)
             ),
+
             (
                 float(destination_lon),
                 float(destination_lat)
             )
+
         ]
+
     )
 
-    # Use the larger geographic buffer so both latitude and
-    # longitude directions have enough room.
+
     buffer_degrees = max(
+
         buffer_lat,
         buffer_lon
+
     )
+
 
     corridor_polygon = route_line.buffer(
+
         buffer_degrees
+
     )
 
+
     print(
+
         "Downloading OSM network inside route corridor...",
+
         flush=True
+
     )
+
 
     try:
 
         G = ox.graph_from_polygon(
+
             corridor_polygon,
+
             network_type="drive",
+
             simplify=True
+
         )
+
 
     except Exception as first_error:
 
         print(
+
             "\nCorridor OSM download failed:",
+
             str(first_error),
+
             flush=True
+
         )
 
+
         # ----------------------------------------------------
-        # Fallback: rectangular bbox.
-        # Kept only as a safety net for unusual OSM areas.
+        # COMPACT FALLBACK BBOX
         # ----------------------------------------------------
 
         fallback_padding = min(
+
             0.05,
+
             max(
+
                 0.015,
+
                 buffer_degrees
+
             )
+
         )
+
 
         north = (
+
             max(
+
                 float(source_lat),
                 float(destination_lat)
+
             )
-            + fallback_padding
+
+            +
+
+            fallback_padding
+
         )
+
 
         south = (
+
             min(
+
                 float(source_lat),
                 float(destination_lat)
+
             )
-            - fallback_padding
+
+            -
+
+            fallback_padding
+
         )
+
 
         east = (
+
             max(
+
                 float(source_lon),
                 float(destination_lon)
+
             )
-            + fallback_padding
+
+            +
+
+            fallback_padding
+
         )
+
 
         west = (
+
             min(
+
                 float(source_lon),
                 float(destination_lon)
+
             )
-            - fallback_padding
+
+            -
+
+            fallback_padding
+
         )
+
 
         print(
+
             "Trying compact bbox fallback...",
+
             flush=True
+
         )
 
+
         G = ox.graph_from_bbox(
+
             bbox=(
+
                 west,
                 south,
                 east,
                 north
+
             ),
+
             network_type="drive",
+
             simplify=True
+
         )
 
+
     network_time = (
+
         time.perf_counter()
-        - network_start
+
+        -
+
+        network_start
+
     )
 
+
     print(
+
         f"\nOSM road network ready in "
         f"{network_time:.2f} seconds",
+
         flush=True
+
     )
 
+
     print(
+
         "Nodes:",
         len(G.nodes),
+
         flush=True
+
     )
 
+
     print(
+
         "Edges:",
         len(G.edges),
+
         flush=True
+
     )
+
 
     if len(G.nodes) == 0:
 
         raise RuntimeError(
+
             "OSM returned an empty road network."
+
         )
 
+
     # --------------------------------------------------------
-    # CACHE
+    # CACHE GRAPH
     # --------------------------------------------------------
 
     if len(GRAPH_CACHE) >= MAX_GRAPH_CACHE_SIZE:
 
         oldest_key = next(
+
             iter(GRAPH_CACHE)
+
         )
 
         del GRAPH_CACHE[oldest_key]
 
+
     GRAPH_CACHE[cache_key] = G
 
+
     print(
+
         "OSM graph stored in memory cache.",
+
         flush=True
+
     )
+
 
     return G
 
@@ -442,7 +847,7 @@ def home():
             "AI + OSM Road Condition Route Engine",
 
         "version":
-            "2.0",
+            "2.1",
 
         "graph_cache":
             len(GRAPH_CACHE)
@@ -467,6 +872,9 @@ def health():
 
         "service":
             "AI + OSM Road Condition Route Engine",
+
+        "version":
+            "2.1",
 
         "graph_cache":
             len(GRAPH_CACHE),
@@ -496,10 +904,6 @@ def suggest_locations():
     ).strip()
 
 
-    # --------------------------------------------------------
-    # Minimum query length
-    # --------------------------------------------------------
-
     if len(query) < 2:
 
         return jsonify({
@@ -512,11 +916,7 @@ def suggest_locations():
 
     try:
 
-        # ----------------------------------------------------
-        # QUERY NOMINATIM
-        # ----------------------------------------------------
-
-        response = requests.get(
+        response = HTTP_SESSION.get(
 
             "https://nominatim.openstreetmap.org/search",
 
@@ -539,13 +939,6 @@ def suggest_locations():
 
             },
 
-            headers={
-
-                "User-Agent":
-                    "RoadQuality/1.0 (route recommendation project)"
-
-            },
-
             timeout=8
 
         )
@@ -560,34 +953,22 @@ def suggest_locations():
         suggestions = []
 
 
-        # ----------------------------------------------------
-        # FORMAT RESULTS
-        # ----------------------------------------------------
-
         for place in results:
 
             try:
 
                 latitude = float(
-
                     place["lat"]
-
                 )
 
                 longitude = float(
-
                     place["lon"]
-
                 )
 
             except (
-
                 ValueError,
-
                 TypeError,
-
                 KeyError
-
             ):
 
                 continue
@@ -596,16 +977,12 @@ def suggest_locations():
             display_name = (
 
                 place.get(
-
                     "display_name",
-
                     ""
-
                 )
+                or ""
 
-                .strip()
-
-            )
+            ).strip()
 
 
             if not display_name:
@@ -643,7 +1020,6 @@ def suggest_locations():
         print(
 
             "Suggestion error:",
-
             str(e),
 
             flush=True
@@ -670,35 +1046,21 @@ def suggest_locations():
 def reverse_location():
 
     latitude = request.args.get(
-
         "lat",
-
         type=float
-
     )
 
 
     longitude = request.args.get(
-
         "lon",
-
         type=float
-
     )
 
 
-    # --------------------------------------------------------
-    # VALIDATION
-    # --------------------------------------------------------
-
     if (
-
         latitude is None
-
         or
-
         longitude is None
-
     ):
 
         return jsonify({
@@ -711,10 +1073,6 @@ def reverse_location():
 
         }), 400
 
-
-    # --------------------------------------------------------
-    # VALID LATITUDE / LONGITUDE RANGE
-    # --------------------------------------------------------
 
     if not (
 
@@ -739,11 +1097,7 @@ def reverse_location():
 
     try:
 
-        # ----------------------------------------------------
-        # REVERSE GEOCODING
-        # ----------------------------------------------------
-
-        response = requests.get(
+        response = HTTP_SESSION.get(
 
             "https://nominatim.openstreetmap.org/reverse",
 
@@ -766,13 +1120,6 @@ def reverse_location():
 
             },
 
-            headers={
-
-                "User-Agent":
-                    "RoadQuality/1.0 (route recommendation project)"
-
-            },
-
             timeout=8
 
         )
@@ -787,16 +1134,12 @@ def reverse_location():
         display_name = (
 
             result.get(
-
                 "display_name",
-
                 ""
-
             )
+            or ""
 
-            .strip()
-
-        )
+        ).strip()
 
 
         return jsonify({
@@ -821,7 +1164,6 @@ def reverse_location():
         print(
 
             "Reverse geocoding error:",
-
             str(e),
 
             flush=True
@@ -867,13 +1209,12 @@ def analyze_route():
     try:
 
         # ====================================================
-        # STEP 1 - REQUEST RECEIVED
+        # STEP 1
         # ====================================================
 
         print_step(
 
             request_id,
-
             request_start,
 
             "STEP 1 - /analyze request received"
@@ -882,20 +1223,17 @@ def analyze_route():
 
 
         # ====================================================
-        # STEP 2 - READ JSON
+        # STEP 2
         # ====================================================
 
         data = request.get_json(
-
             silent=True
-
         )
 
 
         print_step(
 
             request_id,
-
             request_start,
 
             "STEP 2 - JSON request body read"
@@ -926,11 +1264,8 @@ def analyze_route():
         source_place = str(
 
             data.get(
-
                 "source",
-
                 ""
-
             )
 
         ).strip()
@@ -939,11 +1274,8 @@ def analyze_route():
         destination_place = str(
 
             data.get(
-
                 "destination",
-
                 ""
-
             )
 
         ).strip()
@@ -952,11 +1284,8 @@ def analyze_route():
         preference = str(
 
             data.get(
-
                 "preference",
-
                 "balanced"
-
             )
 
         ).strip().lower()
@@ -1001,9 +1330,7 @@ def analyze_route():
         valid_preferences = [
 
             "balanced",
-
             "road_condition",
-
             "fastest"
 
         ]
@@ -1017,78 +1344,48 @@ def analyze_route():
         print(
 
             "\n" + "=" * 70,
-
             flush=True
 
         )
 
-
         print(
-
             "ROADQUALITY API REQUEST",
-
             flush=True
-
         )
 
-
         print(
-
             "=" * 70,
-
             flush=True
-
         )
 
-
         print(
-
             "Request ID:",
-
             request_id,
-
             flush=True
-
         )
 
-
         print(
-
             "Source:",
-
             source_place,
-
             flush=True
-
         )
 
-
         print(
-
             "Destination:",
-
             destination_place,
-
             flush=True
-
         )
 
-
         print(
-
             "Preference:",
-
             preference,
-
             flush=True
-
         )
 
 
         print_step(
 
             request_id,
-
             request_start,
 
             "STEP 3 - Request validated"
@@ -1103,27 +1400,18 @@ def analyze_route():
         print(
 
             "\n" + "=" * 70,
-
             flush=True
 
         )
 
-
         print(
-
             "GEOCODING",
-
             flush=True
-
         )
 
-
         print(
-
             "=" * 70,
-
             flush=True
-
         )
 
 
@@ -1132,11 +1420,8 @@ def analyze_route():
         # ----------------------------------------------------
 
         print(
-
             "\nLocating source...",
-
             flush=True
-
         )
 
 
@@ -1145,9 +1430,13 @@ def analyze_route():
 
         try:
 
-            source_lat, source_lon = ox.geocode(
+            source_lat, source_lon = geocode_place(
 
-                source_place
+                source_place,
+
+                request_id,
+
+                request_start
 
             )
 
@@ -1157,7 +1446,6 @@ def analyze_route():
             print(
 
                 "SOURCE GEOCODING ERROR:",
-
                 str(e),
 
                 flush=True
@@ -1185,8 +1473,8 @@ def analyze_route():
         source_geo_time = (
 
             time.perf_counter()
-
-            - source_geo_start
+            -
+            source_geo_start
 
         )
 
@@ -1194,7 +1482,6 @@ def analyze_route():
         print(
 
             f"Source geocoding completed "
-
             f"in {source_geo_time:.2f} seconds",
 
             flush=True
@@ -1209,7 +1496,6 @@ def analyze_route():
         print(
 
             "\nLocating destination...",
-
             flush=True
 
         )
@@ -1224,13 +1510,13 @@ def analyze_route():
 
         try:
 
-            destination_lat, destination_lon = (
+            destination_lat, destination_lon = geocode_place(
 
-                ox.geocode(
+                destination_place,
 
-                    destination_place
+                request_id,
 
-                )
+                request_start
 
             )
 
@@ -1240,7 +1526,6 @@ def analyze_route():
             print(
 
                 "DESTINATION GEOCODING ERROR:",
-
                 str(e),
 
                 flush=True
@@ -1268,8 +1553,8 @@ def analyze_route():
         destination_geo_time = (
 
             time.perf_counter()
-
-            - destination_geo_start
+            -
+            destination_geo_start
 
         )
 
@@ -1277,7 +1562,6 @@ def analyze_route():
         print(
 
             f"Destination geocoding completed "
-
             f"in {destination_geo_time:.2f} seconds",
 
             flush=True
@@ -1288,9 +1572,7 @@ def analyze_route():
         print(
 
             f"\nSource coordinates: "
-
             f"{source_lat:.6f}, "
-
             f"{source_lon:.6f}",
 
             flush=True
@@ -1301,9 +1583,7 @@ def analyze_route():
         print(
 
             f"Destination coordinates: "
-
             f"{destination_lat:.6f}, "
-
             f"{destination_lon:.6f}",
 
             flush=True
@@ -1314,7 +1594,6 @@ def analyze_route():
         print_step(
 
             request_id,
-
             request_start,
 
             "STEP 4 - Geocoding completed"
@@ -1323,40 +1602,54 @@ def analyze_route():
 
 
         # ====================================================
-        # STEP 5 - DYNAMIC OSM ROAD CORRIDOR
+        # STEP 5 - ROAD NETWORK
         # ====================================================
 
         print(
+
             "\n" + "=" * 70,
             flush=True
+
         )
 
         print(
+
             "GETTING DYNAMIC ROAD NETWORK",
             flush=True
+
         )
 
         print(
+
             "=" * 70,
             flush=True
+
         )
+
 
         try:
 
             G = get_road_network(
+
                 source_lat,
                 source_lon,
+
                 destination_lat,
                 destination_lon,
+
                 request_id,
                 request_start
+
             )
+
 
         except Exception as e:
 
             traceback.print_exc()
 
+
             return jsonify({
+
                 "status":
                     "error",
 
@@ -1371,41 +1664,45 @@ def analyze_route():
 
             }), 500
 
-# ====================================================
-        # STEP 6 - LOAD ROAD CONDITION DATABASES
+
+        print_step(
+
+            request_id,
+            request_start,
+
+            "STEP 5 - Road network ready"
+
+        )
+
+
+        # ====================================================
+        # STEP 6 - LOAD DATABASES
         # ====================================================
 
         print(
 
             "\n" + "=" * 70,
-
             flush=True
 
         )
-
 
         print(
 
             "LOADING ROAD CONDITION DATABASE",
-
             flush=True
 
         )
 
-
         print(
 
             "=" * 70,
-
             flush=True
 
         )
 
 
         global AI_SEGMENTS_CACHE
-
         global OSM_SEGMENTS_CACHE
-
         global AI_POINTS_CACHE
 
 
@@ -1415,13 +1712,9 @@ def analyze_route():
         if (
 
             AI_SEGMENTS_CACHE is not None
-
             and
-
             OSM_SEGMENTS_CACHE is not None
-
             and
-
             AI_POINTS_CACHE is not None
 
         ):
@@ -1436,7 +1729,6 @@ def analyze_route():
             print(
 
                 "Using cached road condition databases.",
-
                 flush=True
 
             )
@@ -1446,14 +1738,19 @@ def analyze_route():
 
             database_result = load_databases()
 
-            # New route_health.py returns:
-            #   AI edge records
-            #   OSM records
-            #   geographic AI observations
-            #
-            # Keep a compatibility fallback for older versions.
 
-            if isinstance(database_result, tuple) and len(database_result) >= 3:
+            if (
+
+                isinstance(
+                    database_result,
+                    tuple
+                )
+
+                and
+
+                len(database_result) >= 3
+
+            ):
 
                 ai_segments = database_result[0]
 
@@ -1480,7 +1777,6 @@ def analyze_route():
             print(
 
                 "Road condition databases loaded "
-
                 "and cached.",
 
                 flush=True
@@ -1491,8 +1787,8 @@ def analyze_route():
         database_time = (
 
             time.perf_counter()
-
-            - database_start
+            -
+            database_start
 
         )
 
@@ -1500,7 +1796,6 @@ def analyze_route():
         print(
 
             f"Database operation completed "
-
             f"in {database_time:.2f} seconds",
 
             flush=True
@@ -1511,9 +1806,7 @@ def analyze_route():
         print(
 
             "\nAI road-condition segments:",
-
             len(ai_segments),
-
             flush=True
 
         )
@@ -1522,9 +1815,7 @@ def analyze_route():
         print(
 
             "OSM baseline segments:",
-
             len(osm_segments),
-
             flush=True
 
         )
@@ -1533,9 +1824,7 @@ def analyze_route():
         print(
 
             "AI geographic observations:",
-
             len(ai_points),
-
             flush=True
 
         )
@@ -1544,7 +1833,6 @@ def analyze_route():
         print_step(
 
             request_id,
-
             request_start,
 
             "STEP 6 - Road condition databases ready"
@@ -1553,33 +1841,24 @@ def analyze_route():
 
 
         # ====================================================
-        # STEP 7 - GENERATE CANDIDATE ROUTES
+        # STEP 7 - GENERATE ROUTES
         # ====================================================
 
         print(
 
             "\n" + "=" * 70,
-
             flush=True
 
         )
 
-
         print(
-
             "GENERATING CANDIDATE ROUTES",
-
             flush=True
-
         )
 
-
         print(
-
             "=" * 70,
-
             flush=True
-
         )
 
 
@@ -1597,11 +1876,9 @@ def analyze_route():
                 G,
 
                 source_lat,
-
                 source_lon,
 
                 destination_lat,
-
                 destination_lon,
 
                 number_of_routes=3
@@ -1614,13 +1891,11 @@ def analyze_route():
             print(
 
                 "\nROUTE GENERATION ERROR:",
-
                 str(e),
 
                 flush=True
 
             )
-
 
             traceback.print_exc()
 
@@ -1645,8 +1920,8 @@ def analyze_route():
         route_generation_time = (
 
             time.perf_counter()
-
-            - route_generation_start
+            -
+            route_generation_start
 
         )
 
@@ -1670,7 +1945,6 @@ def analyze_route():
         print(
 
             f"\nCandidate route generation completed "
-
             f"in {route_generation_time:.2f} seconds",
 
             flush=True
@@ -1679,13 +1953,9 @@ def analyze_route():
 
 
         print(
-
             "Candidate routes:",
-
             len(routes),
-
             flush=True
-
         )
 
 
@@ -1694,9 +1964,7 @@ def analyze_route():
             print(
 
                 f"  {route.get('name', 'Route')} | "
-
                 f"{float(route.get('distance', 0)):.2f} km | "
-
                 f"{float(route.get('travel_time', 0)):.2f} min",
 
                 flush=True
@@ -1707,7 +1975,6 @@ def analyze_route():
         print_step(
 
             request_id,
-
             request_start,
 
             "STEP 7 - Candidate routes generated"
@@ -1716,33 +1983,24 @@ def analyze_route():
 
 
         # ====================================================
-        # STEP 8 - ASSESS ROAD CONDITION
+        # STEP 8 - ROAD CONDITION
         # ====================================================
 
         print(
 
             "\n" + "=" * 70,
-
             flush=True
 
         )
 
-
         print(
-
             "ASSESSING ROAD CONDITION",
-
             flush=True
-
         )
 
-
         print(
-
             "=" * 70,
-
             flush=True
-
         )
 
 
@@ -1755,36 +2013,28 @@ def analyze_route():
         for route in routes:
 
             route_name = route.get(
-
                 "name",
-
                 "Route"
-
             )
 
 
             print(
 
                 f"\nAssessing {route_name}...",
-
                 flush=True
 
             )
 
 
             route_edges = route.get(
-
                 "osm_edges",
-
                 []
-
             )
 
 
             print(
 
                 f"OSM edges: {len(route_edges)}",
-
                 flush=True
 
             )
@@ -1812,7 +2062,6 @@ def analyze_route():
                 print(
 
                     f"ROAD HEALTH ERROR for "
-
                     f"{route_name}: {e}",
 
                     flush=True
@@ -1868,18 +2117,13 @@ def analyze_route():
 
 
             health = health_result.get(
-
                 "health"
-
             )
 
 
             condition = health_result.get(
-
                 "condition",
-
                 "Unknown"
-
             )
 
 
@@ -1894,19 +2138,13 @@ def analyze_route():
                 try:
 
                     health_value = round(
-
                         float(health),
-
                         2
-
                     )
 
                 except (
-
                     ValueError,
-
                     TypeError
-
                 ):
 
                     health_value = None
@@ -1915,37 +2153,26 @@ def analyze_route():
 
 
             ai_coverage = health_result.get(
-
                 "ai_coverage",
-
                 0.0
-
             )
 
 
             overall_coverage = health_result.get(
-
                 "coverage",
-
                 0.0
-
             )
 
 
             try:
 
                 ai_coverage = float(
-
                     ai_coverage
-
                 )
 
             except (
-
                 ValueError,
-
                 TypeError
-
             ):
 
                 ai_coverage = 0.0
@@ -1954,45 +2181,32 @@ def analyze_route():
             try:
 
                 overall_coverage = float(
-
                     overall_coverage
-
                 )
 
             except (
-
                 ValueError,
-
                 TypeError
-
             ):
 
                 overall_coverage = 0.0
 
 
             confidence = health_result.get(
-
                 "confidence",
-
                 overall_coverage
-
             )
 
 
             try:
 
                 confidence = float(
-
                     confidence
-
                 )
 
             except (
-
                 ValueError,
-
                 TypeError
-
             ):
 
                 confidence = overall_coverage
@@ -2018,29 +2232,58 @@ def analyze_route():
                 []
             )
 
+
             osm_matches_result = health_result.get(
                 "osm_matches",
                 []
             )
 
-            # ``route_health.py`` may return either a detailed match list
-            # or a numeric match count depending on the installed version.
-            # Normalize both forms here so the API never crashes on len(int).
+
+            # ------------------------------------------------
+            # NORMALIZE MATCH COUNTS
+            # ------------------------------------------------
+
             def _match_count(value):
+
                 if value is None:
-                    return 0
-                if isinstance(value, int):
-                    return value
-                if isinstance(value, float):
-                    return int(value)
-                try:
-                    return len(value)
-                except TypeError:
+
                     return 0
 
-            ai_match_count = _match_count(ai_matches_result)
-            osm_match_count = _match_count(osm_matches_result)
-            matched_count = ai_match_count + osm_match_count
+                if isinstance(value, int):
+
+                    return value
+
+                if isinstance(value, float):
+
+                    return int(value)
+
+                try:
+
+                    return len(value)
+
+                except TypeError:
+
+                    return 0
+
+
+            ai_match_count = _match_count(
+                ai_matches_result
+            )
+
+
+            osm_match_count = _match_count(
+                osm_matches_result
+            )
+
+
+            matched_count = (
+
+                ai_match_count
+                +
+                osm_match_count
+
+            )
+
 
             evaluated_route = {
 
@@ -2066,13 +2309,21 @@ def analyze_route():
 
                 "unavailable_segment_count":
                     int(
+
                         health_result.get(
+
                             "unavailable_segments",
+
                             health_result.get(
+
                                 "unavailable_segment_count",
+
                                 0
+
                             )
+
                         )
+
                     ),
 
                 "ai_coverage":
@@ -2102,10 +2353,20 @@ def analyze_route():
                 "health_observations":
                     (
                         ai_matches_result
-                        + osm_matches_result
-                        if isinstance(ai_matches_result, list)
-                        and isinstance(osm_matches_result, list)
-                        else matched_count
+                        +
+                        osm_matches_result
+                        if
+                        isinstance(
+                            ai_matches_result,
+                            list
+                        )
+                        and
+                        isinstance(
+                            osm_matches_result,
+                            list
+                        )
+                        else
+                        matched_count
                     ),
 
                 "data_status":
@@ -2113,13 +2374,12 @@ def analyze_route():
                         "data_status",
                         "Insufficient Data"
                     )
+
             }
 
 
             evaluated_routes.append(
-
                 evaluated_route
-
             )
 
 
@@ -2128,11 +2388,8 @@ def analyze_route():
                 print(
 
                     f"{route_name} | "
-
                     f"Health: Insufficient Data | "
-
                     f"Coverage: "
-
                     f"{overall_coverage:.2f}%",
 
                     flush=True
@@ -2144,17 +2401,11 @@ def analyze_route():
                 print(
 
                     f"{route_name} | "
-
                     f"Health: "
-
                     f"{health_value:.2f} | "
-
                     f"Condition: "
-
                     f"{condition} | "
-
                     f"Coverage: "
-
                     f"{overall_coverage:.2f}%",
 
                     flush=True
@@ -2165,8 +2416,8 @@ def analyze_route():
         health_time = (
 
             time.perf_counter()
-
-            - health_start
+            -
+            health_start
 
         )
 
@@ -2174,7 +2425,6 @@ def analyze_route():
         print(
 
             f"\nRoad condition assessment completed "
-
             f"in {health_time:.2f} seconds",
 
             flush=True
@@ -2185,7 +2435,6 @@ def analyze_route():
         print_step(
 
             request_id,
-
             request_start,
 
             "STEP 8 - All candidate routes evaluated"
@@ -2194,41 +2443,28 @@ def analyze_route():
 
 
         # ====================================================
-        # STEP 9 - RECOMMEND ROUTES
+        # STEP 9 - RECOMMEND
         # ====================================================
 
         print(
 
             "\n" + "=" * 70,
-
             flush=True
 
         )
 
-
         print(
-
             "RECOMMENDING BEST ROUTE",
-
             flush=True
-
         )
-
 
         print(
-
             "=" * 70,
-
             flush=True
-
         )
 
 
-        recommendation_start = (
-
-            time.perf_counter()
-
-        )
+        recommendation_start = time.perf_counter()
 
 
         try:
@@ -2247,13 +2483,11 @@ def analyze_route():
             print(
 
                 "\nROUTE RECOMMENDATION ERROR:",
-
                 str(e),
 
                 flush=True
 
             )
-
 
             traceback.print_exc()
 
@@ -2278,8 +2512,8 @@ def analyze_route():
         recommendation_time = (
 
             time.perf_counter()
-
-            - recommendation_start
+            -
+            recommendation_start
 
         )
 
@@ -2303,7 +2537,6 @@ def analyze_route():
         print(
 
             f"Route recommendation completed "
-
             f"in {recommendation_time:.2f} seconds",
 
             flush=True
@@ -2314,7 +2547,6 @@ def analyze_route():
         print_step(
 
             request_id,
-
             request_start,
 
             "STEP 9 - Routes ranked by preference"
@@ -2323,33 +2555,24 @@ def analyze_route():
 
 
         # ====================================================
-        # PRINT ROUTE SCORES
+        # ROUTE SCORES
         # ====================================================
 
         print(
 
             "\n" + "=" * 70,
-
             flush=True
 
         )
 
-
         print(
-
             "ROUTE SCORES",
-
             flush=True
-
         )
 
-
         print(
-
             "=" * 70,
-
             flush=True
-
         )
 
 
@@ -2370,21 +2593,12 @@ def analyze_route():
             print(
 
                 f"{route.get('name', 'Route')} | "
-
-                f"Health: "
-
-                f"{health_display} | "
-
+                f"Health: {health_display} | "
                 f"Distance: "
-
                 f"{float(route.get('distance', 0)):.2f} km | "
-
                 f"Time: "
-
                 f"{float(route.get('travel_time', 0)):.2f} min | "
-
                 f"Score: "
-
                 f"{float(route.get('final_score', 0)):.2f}",
 
                 flush=True
@@ -2393,11 +2607,8 @@ def analyze_route():
 
 
         print(
-
             "=" * 70,
-
             flush=True
-
         )
 
 
@@ -2411,13 +2622,9 @@ def analyze_route():
         print(
 
             "\nRecommended route:",
-
             recommended.get(
-
                 "name",
-
                 ""
-
             ),
 
             flush=True
@@ -2426,7 +2633,7 @@ def analyze_route():
 
 
         # ====================================================
-        # FIND ORIGINAL ROUTE INDEX
+        # ORIGINAL ROUTE INDEX
         # ====================================================
 
         recommended_index = 0
@@ -2450,7 +2657,7 @@ def analyze_route():
 
 
         # ====================================================
-        # PREPARE ROUTES FOR WEB / MOBILE
+        # PREPARE ROUTES
         # ====================================================
 
         route_results = []
@@ -2462,17 +2669,10 @@ def analyze_route():
         for route in ranked_routes:
 
             coordinates = route.get(
-
                 "coordinates",
-
                 []
-
             )
 
-
-            # ------------------------------------------------
-            # CLEAN COORDINATES
-            # ------------------------------------------------
 
             route_coordinates = []
 
@@ -2484,11 +2684,8 @@ def analyze_route():
                     if (
 
                         not isinstance(
-
                             point,
-
                             (list, tuple)
-
                         )
 
                         or
@@ -2501,61 +2698,41 @@ def analyze_route():
 
 
                     lat = float(
-
                         point[0]
-
                     )
 
 
                     lon = float(
-
                         point[1]
-
                     )
 
 
                     route_coordinates.append([
 
                         lat,
-
                         lon
 
                     ])
 
 
                 except (
-
                     ValueError,
-
                     TypeError,
-
                     IndexError
-
                 ):
 
                     continue
 
 
             # ------------------------------------------------
-            # LIMIT POINTS
+            # LIMIT GPS POINTS
             # ------------------------------------------------
 
-            if (
-
-                len(route_coordinates)
-
-                >
-
-                MAX_ROUTE_POINTS
-
-            ):
+            if len(route_coordinates) > MAX_ROUTE_POINTS:
 
                 last_index = (
-
                     len(route_coordinates)
-
                     - 1
-
                 )
 
 
@@ -2563,27 +2740,19 @@ def analyze_route():
 
 
                 for i in range(
-
                     MAX_ROUTE_POINTS
-
                 ):
 
                     index = round(
 
                         i
-
                         *
-
                         last_index
-
                         /
-
                         (
-
                             MAX_ROUTE_POINTS
-
-                            - 1
-
+                            -
+                            1
                         )
 
                     )
@@ -2597,9 +2766,7 @@ def analyze_route():
 
 
                 route_coordinates = (
-
                     sampled_coordinates
-
                 )
 
 
@@ -2608,9 +2775,7 @@ def analyze_route():
             # ------------------------------------------------
 
             route_health = route.get(
-
                 "road_health"
-
             )
 
 
@@ -2619,19 +2784,13 @@ def analyze_route():
                 try:
 
                     route_health = round(
-
                         float(route_health),
-
                         2
-
                     )
 
                 except (
-
                     ValueError,
-
                     TypeError
-
                 ):
 
                     route_health = None
@@ -2646,11 +2805,8 @@ def analyze_route():
                 "final_score",
 
                 route.get(
-
                     "score",
-
                     0
-
                 )
 
             )
@@ -2659,17 +2815,12 @@ def analyze_route():
             try:
 
                 final_score = float(
-
                     final_score
-
                 )
 
             except (
-
                 ValueError,
-
                 TypeError
-
             ):
 
                 final_score = 0.0
@@ -2684,11 +2835,8 @@ def analyze_route():
                 "confidence",
 
                 route.get(
-
                     "coverage",
-
                     0
-
                 )
 
             )
@@ -2697,17 +2845,12 @@ def analyze_route():
             try:
 
                 confidence = float(
-
                     confidence
-
                 )
 
             except (
-
                 ValueError,
-
                 TypeError
-
             ):
 
                 confidence = 0.0
@@ -2718,20 +2861,14 @@ def analyze_route():
             # ------------------------------------------------
 
             score_breakdown = route.get(
-
                 "score_breakdown",
-
                 {}
-
             )
 
 
             if not isinstance(
-
                 score_breakdown,
-
                 dict
-
             ):
 
                 score_breakdown = {}
@@ -2745,253 +2882,143 @@ def analyze_route():
 
                 "name":
                     route.get(
-
                         "name",
-
                         ""
-
                     ),
-
 
                 "rank":
                     int(
-
                         route.get(
-
                             "rank",
-
                             0
-
                         )
-
                     ),
-
 
                 "distance":
                     float(
-
                         route.get(
-
                             "distance",
-
                             0
-
                         )
-
                     ),
-
 
                 "travel_time":
                     float(
-
                         route.get(
-
                             "travel_time",
-
                             0
-
                         )
-
                     ),
-
 
                 "road_health":
                     route_health,
 
-
                 "condition":
                     route.get(
-
                         "condition",
-
                         "Unknown"
-
                     ),
-
 
                 "score":
                     final_score,
 
-
                 "final_score":
                     final_score,
 
-
-                # ==================================================
-                # SCORING DETAILS
-                # ==================================================
-
                 "distance_score":
                     float(
-
                         route.get(
-
                             "distance_score",
-
                             0
-
                         )
-
                     ),
-
 
                 "time_score":
                     float(
-
                         route.get(
-
                             "time_score",
-
                             0
-
                         )
-
                     ),
-
 
                 "coverage_score":
                     float(
-
                         route.get(
-
                             "coverage_score",
-
                             route.get(
-
                                 "coverage",
-
                                 0
-
                             )
-
                         )
-
                     ),
-
 
                 "score_breakdown":
                     score_breakdown,
 
-
                 "recommendation_reason":
                     route.get(
-
                         "recommendation_reason",
-
                         ""
-
                     ),
-
-
-                # ==================================================
-                # ROAD CONDITION DATA
-                # ==================================================
 
                 "matched_observations":
                     int(
-
                         route.get(
-
                             "matched_observations",
-
                             0
-
                         )
-
                     ),
-
 
                 "observation_count":
                     int(
-
                         route.get(
-
                             "observation_count",
-
                             0
-
                         )
-
                     ),
-
 
                 "ai_segment_count":
                     int(
-
                         route.get(
-
                             "ai_segment_count",
-
                             0
-
                         )
-
                     ),
-
 
                 "osm_segment_count":
                     int(
-
                         route.get(
-
                             "osm_segment_count",
-
                             0
-
                         )
-
                     ),
-
 
                 "unavailable_segment_count":
                     int(
-
                         route.get(
-
                             "unavailable_segment_count",
-
                             0
-
                         )
-
                     ),
-
 
                 "ai_coverage":
                     float(
-
                         route.get(
-
                             "ai_coverage",
-
                             0
-
                         )
-
                     ),
-
 
                 "coverage":
                     float(
-
                         route.get(
-
                             "coverage",
-
                             0
-
                         )
-
                     ),
-
 
                 "confidence":
                     confidence,
-
-
-                # ==================================================
-                # ROUTE COORDINATES
-                # ==================================================
 
                 "coordinates":
                     route_coordinates
@@ -3000,17 +3027,11 @@ def analyze_route():
 
 
         # ====================================================
-        # RECOMMENDED ROUTE DATA
+        # RECOMMENDED DATA
         # ====================================================
 
-        recommended_health = (
-
-            recommended.get(
-
-                "road_health"
-
-            )
-
+        recommended_health = recommended.get(
+            "road_health"
         )
 
 
@@ -3019,36 +3040,24 @@ def analyze_route():
             try:
 
                 recommended_health = float(
-
                     recommended_health
-
                 )
 
             except (
-
                 ValueError,
-
                 TypeError
-
             ):
 
                 recommended_health = None
 
 
-        recommended_confidence = (
+        recommended_confidence = recommended.get(
+
+            "confidence",
 
             recommended.get(
-
-                "confidence",
-
-                recommended.get(
-
-                    "coverage",
-
-                    0
-
-                )
-
+                "coverage",
+                0
             )
 
         )
@@ -3057,36 +3066,24 @@ def analyze_route():
         try:
 
             recommended_confidence = float(
-
                 recommended_confidence
-
             )
 
         except (
-
             ValueError,
-
             TypeError
-
         ):
 
             recommended_confidence = 0.0
 
 
-        recommended_score = (
+        recommended_score = recommended.get(
+
+            "final_score",
 
             recommended.get(
-
-                "final_score",
-
-                recommended.get(
-
-                    "score",
-
-                    0
-
-                )
-
+                "score",
+                0
             )
 
         )
@@ -3095,17 +3092,12 @@ def analyze_route():
         try:
 
             recommended_score = float(
-
                 recommended_score
-
             )
 
         except (
-
             ValueError,
-
             TypeError
-
         ):
 
             recommended_score = 0.0
@@ -3118,8 +3110,8 @@ def analyze_route():
         total_processing_time = (
 
             time.perf_counter()
-
-            - request_start
+            -
+            request_start
 
         )
 
@@ -3128,11 +3120,6 @@ def analyze_route():
 
             "status":
                 "success",
-
-
-            # ==================================================
-            # SOURCE
-            # ==================================================
 
             "source": {
 
@@ -3147,11 +3134,6 @@ def analyze_route():
 
             },
 
-
-            # ==================================================
-            # DESTINATION
-            # ==================================================
-
             "destination": {
 
                 "name":
@@ -3165,214 +3147,109 @@ def analyze_route():
 
             },
 
-
-            # ==================================================
-            # USER PREFERENCE
-            # ==================================================
-
             "preference":
                 preference,
 
-
-            # ==================================================
-            # RECOMMENDED ROUTE
-            # ==================================================
-
             "recommended_route":
                 recommended.get(
-
                     "name",
-
                     ""
-
                 ),
-
 
             "recommended_route_index":
                 recommended_index,
 
-
-            # ==================================================
-            # ROAD HEALTH
-            # ==================================================
-
             "road_health":
                 recommended_health,
 
-
             "condition":
                 recommended.get(
-
                     "condition",
-
                     "Unknown"
-
                 ),
-
-
-            # ==================================================
-            # ROUTE METRICS
-            # ==================================================
 
             "distance":
                 float(
-
                     recommended.get(
-
                         "distance",
-
                         0
-
                     )
-
                 ),
-
 
             "travel_time":
                 float(
-
                     recommended.get(
-
                         "travel_time",
-
                         0
-
                     )
-
                 ),
-
-
-            # ==================================================
-            # RECOMMENDATION SCORE
-            # ==================================================
 
             "score":
                 recommended_score,
 
-
-            # ==================================================
-            # CONFIDENCE / DATA COVERAGE
-            # ==================================================
-
             "confidence":
                 recommended_confidence,
 
-
             "ai_segments":
                 int(
-
                     recommended.get(
-
                         "ai_segment_count",
-
                         0
-
                     )
-
                 ),
-
 
             "osm_segments":
                 int(
-
                     recommended.get(
-
                         "osm_segment_count",
-
                         0
-
                     )
-
                 ),
-
 
             "unavailable_segments":
                 int(
-
                     recommended.get(
-
                         "unavailable_segment_count",
-
                         0
-
                     )
-
                 ),
-
 
             "ai_coverage":
                 float(
-
                     recommended.get(
-
                         "ai_coverage",
-
                         0
-
                     )
-
                 ),
-
 
             "overall_coverage":
                 float(
-
                     recommended.get(
-
                         "coverage",
-
                         0
-
                     )
-
                 ),
-
-
-            # ==================================================
-            # WHY THIS ROUTE WAS SELECTED
-            # ==================================================
 
             "recommendation_reason":
                 recommended.get(
-
                     "recommendation_reason",
-
                     ""
-
                 ),
-
 
             "score_breakdown":
                 recommended.get(
-
                     "score_breakdown",
-
                     {}
-
                 ),
-
-
-            # ==================================================
-            # ALL ROUTES
-            # ==================================================
 
             "routes":
                 route_results,
 
-
-            # ==================================================
-            # DEBUG / PERFORMANCE
-            # ==================================================
-
             "processing_time_seconds":
                 round(
-
                     total_processing_time,
-
                     2
-
                 ),
-
 
             "request_id":
                 request_id
@@ -3387,160 +3264,90 @@ def analyze_route():
         print(
 
             "\n" + "=" * 70,
-
             flush=True
 
         )
 
-
         print(
-
             "ROADQUALITY API RESPONSE",
-
             flush=True
-
         )
 
-
         print(
-
             "=" * 70,
-
             flush=True
-
         )
 
-
         print(
-
             "Request ID:",
-
             request_id,
-
             flush=True
-
         )
 
-
         print(
-
             "Recommended:",
-
             response["recommended_route"],
-
             flush=True
-
         )
 
-
         print(
-
             "Health:",
-
             (
-
                 "Insufficient Data"
-
                 if response["road_health"] is None
-
                 else response["road_health"]
-
             ),
-
             flush=True
-
         )
 
-
         print(
-
             "Condition:",
-
             response["condition"],
-
             flush=True
-
         )
 
-
         print(
-
             "Distance:",
-
             response["distance"],
-
             "km",
-
             flush=True
-
         )
 
-
         print(
-
             "Time:",
-
             response["travel_time"],
-
             "min",
-
             flush=True
-
         )
 
-
         print(
-
             "Score:",
-
             response["score"],
-
             flush=True
-
         )
 
-
         print(
-
             "Confidence:",
-
             response["confidence"],
-
             flush=True
-
         )
 
-
         print(
-
             "Routes returned:",
-
             len(response["routes"]),
-
             flush=True
-
         )
 
-
         print(
-
             "Processing time:",
-
-            response[
-
-                "processing_time_seconds"
-
-            ],
-
+            response["processing_time_seconds"],
             "seconds",
-
             flush=True
-
         )
 
 
         # ====================================================
-        # PRINT ROUTE DETAILS
+        # ROUTE DETAILS
         # ====================================================
 
         for route in response["routes"]:
@@ -3560,31 +3367,17 @@ def analyze_route():
             print(
 
                 f"Route: {route['name']} | "
-
                 f"Rank: {route['rank']} | "
-
-                f"Health: "
-
-                f"{route_health_display} | "
-
+                f"Health: {route_health_display} | "
                 f"Distance: "
-
                 f"{route['distance']:.2f} km | "
-
                 f"Time: "
-
                 f"{route['travel_time']:.2f} min | "
-
                 f"Score: "
-
                 f"{route['final_score']:.2f} | "
-
                 f"Coverage: "
-
                 f"{route['coverage']:.2f}% | "
-
                 f"GPS points: "
-
                 f"{len(route['coordinates'])}",
 
                 flush=True
@@ -3593,18 +3386,14 @@ def analyze_route():
 
 
         print(
-
             "=" * 70,
-
             flush=True
-
         )
 
 
         print(
 
             f"\nSUCCESS - /analyze completed "
-
             f"in {total_processing_time:.2f} seconds",
 
             flush=True
@@ -3612,14 +3401,8 @@ def analyze_route():
         )
 
 
-        # ====================================================
-        # RETURN JSON
-        # ====================================================
-
         return jsonify(
-
             response
-
         )
 
 
@@ -3632,8 +3415,8 @@ def analyze_route():
         total_processing_time = (
 
             time.perf_counter()
-
-            - request_start
+            -
+            request_start
 
         )
 
@@ -3641,60 +3424,39 @@ def analyze_route():
         print(
 
             "\n" + "=" * 70,
-
             flush=True
 
         )
 
-
         print(
-
             "ROADQUALITY API ERROR",
-
             flush=True
-
         )
 
-
         print(
-
             "=" * 70,
-
             flush=True
-
         )
-
 
         print(
-
             "Request ID:",
-
             request_id,
-
             flush=True
-
         )
-
 
         print(
 
             f"Failed after "
-
             f"{total_processing_time:.2f} seconds",
 
             flush=True
 
         )
 
-
         print(
-
             "Error:",
-
             str(e),
-
             flush=True
-
         )
 
 
@@ -3702,11 +3464,8 @@ def analyze_route():
 
 
         print(
-
             "=" * 70,
-
             flush=True
-
         )
 
 
@@ -3726,11 +3485,8 @@ def analyze_route():
 
             "processing_time_seconds":
                 round(
-
                     total_processing_time,
-
                     2
-
                 )
 
         }), 500
@@ -3743,107 +3499,63 @@ def analyze_route():
 if __name__ == "__main__":
 
     print(
-
         "=" * 70
-
     )
 
-
     print(
-
         "ROADQUALITY API SERVER"
-
     )
 
-
     print(
-
         "=" * 70
-
     )
 
-
     print(
-
         "\nServer starting..."
-
     )
 
-
     print(
-
         "\nDesktop / Browser:"
-
     )
 
-
     print(
-
         "http://127.0.0.1:5000"
-
     )
 
-
     print(
-
         "\nAndroid Emulator:"
-
     )
 
-
     print(
-
         "http://10.0.2.2:5000"
-
     )
 
-
     print(
-
         "\nHealth:"
-
     )
 
-
     print(
-
         "http://127.0.0.1:5000/health"
-
     )
 
-
     print(
-
         "\nAutocomplete:"
-
     )
 
-
     print(
-
         "http://127.0.0.1:5000/suggest?q=Vijay"
-
     )
 
-
     print(
-
         "\nReverse Geocoding:"
-
     )
 
-
     print(
-
         "http://127.0.0.1:5000/reverse?lat=16.5062&lon=80.6480"
-
     )
 
-
     print(
-
         "=" * 70
-
     )
 
 
