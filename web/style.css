@@ -1,0 +1,1548 @@
+/* =========================================================
+   ROADQUALITY — MODERN UI SYSTEM
+   Responsive Planner + Recommendation + Navigation
+   ========================================================= */
+
+:root {
+    --green: #18b968;
+    --green-dark: #07944d;
+    --green-soft: #eafaf1;
+
+    --blue: #287cf4;
+    --blue-dark: #155dcc;
+    --blue-soft: #edf4ff;
+
+    --orange: #f59a23;
+    --orange-soft: #fff4e3;
+
+    --red: #e34d4d;
+    --purple: #7568df;
+
+    --ink: #14263a;
+    --text: #26384b;
+    --muted: #718197;
+    --light: #9aa8b8;
+
+    --bg: #f4f7fa;
+    --card: #ffffff;
+    --border: #e2e9f0;
+
+    --shadow-sm:
+        0 4px 15px rgba(20, 45, 70, .06);
+
+    --shadow:
+        0 12px 35px rgba(20, 45, 70, .09);
+
+    --shadow-lg:
+        0 22px 60px rgba(20, 45, 70, .13);
+
+    --radius: 16px;
+    --radius-sm: 10px;
+
+    --header-height: 68px;
+}
+
+
+/* =========================================================
+   RESET
+   ========================================================= */
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    min-height: 100vh;
+
+    background:
+        radial-gradient(
+            circle at 10% 0%,
+            rgba(40,124,244,.045),
+            transparent 30%
+        ),
+        radial-gradient(
+            circle at 90% 10%,
+            rgba(24,185,104,.05),
+            transparent 28%
+        ),
+        var(--bg);
+
+    color: var(--text);
+
+    font-family:
+        Inter,
+        "Segoe UI",
+        Roboto,
+        Arial,
+        sans-serif;
+
+    -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
+
+button {
+    cursor: pointer;
+}
+
+a {
+    color: inherit;
+}
+
+img {
+    max-width: 100%;
+}
+
+
+/* =========================================================
+   COMMON HEADER
+   ========================================================= */
+
+.topbar {
+    position: sticky;
+
+    top: 0;
+
+    z-index: 5000;
+
+    height: var(--header-height);
+
+    display: flex;
+    align-items: center;
+
+    padding: 0 clamp(18px, 4vw, 60px);
+
+    background:
+        rgba(255,255,255,.94);
+
+    border-bottom:
+        1px solid rgba(226,233,240,.9);
+
+    backdrop-filter:
+        blur(18px);
+
+    -webkit-backdrop-filter:
+        blur(18px);
+
+    box-shadow:
+        0 2px 15px rgba(20,45,70,.035);
+}
+
+
+.brand {
+    display: flex;
+    align-items: center;
+
+    gap: 10px;
+
+    text-decoration: none;
+
+    color: var(--ink);
+
+    font-size: 19px;
+    font-weight: 850;
+
+    letter-spacing: -.5px;
+}
+
+
+.brand::before {
+    content: "RQ";
+
+    width: 36px;
+    height: 36px;
+
+    display: grid;
+    place-items: center;
+
+    border-radius: 11px;
+
+    background:
+        linear-gradient(
+            135deg,
+            var(--green),
+            var(--blue)
+        );
+
+    color: white;
+
+    font-size: 10px;
+    font-weight: 900;
+
+    box-shadow:
+        0 5px 15px rgba(24,185,104,.18);
+}
+
+
+.nav {
+    display: flex;
+    align-items: center;
+
+    gap: 4px;
+
+    margin-left: auto;
+}
+
+
+.nav a {
+    padding: 9px 14px;
+
+    border-radius: 9px;
+
+    color: var(--muted);
+
+    text-decoration: none;
+
+    font-size: 13px;
+    font-weight: 700;
+
+    transition:
+        background .2s ease,
+        color .2s ease,
+        transform .2s ease;
+}
+
+
+.nav a:hover {
+    color: var(--ink);
+
+    background: #f1f5f9;
+
+    transform: translateY(-1px);
+}
+
+
+.nav a.active {
+    color: var(--blue);
+
+    background: var(--blue-soft);
+}
+
+
+/* =========================================================
+   GENERAL PAGE
+   ========================================================= */
+
+.page {
+    width:
+        min(1380px, calc(100% - 40px));
+
+    margin: auto;
+
+    padding:
+        38px 0 60px;
+}
+
+
+.page h1 {
+    color: var(--ink);
+
+    font-size:
+        clamp(30px, 4vw, 48px);
+
+    line-height: 1.05;
+
+    letter-spacing: -1.8px;
+}
+
+
+.page-subtitle {
+    max-width: 680px;
+
+    margin-top: 10px;
+
+    color: var(--muted);
+
+    font-size: 15px;
+
+    line-height: 1.65;
+}
+
+
+/* =========================================================
+   PLANNER HERO
+   ========================================================= */
+
+.planner-hero {
+    position: relative;
+
+    overflow: visible;
+
+    padding: 20px 0 26px;
+}
+
+
+.planner-hero::before {
+    content: "";
+
+    position: absolute;
+
+    width: 280px;
+    height: 280px;
+
+    right: 4%;
+
+    top: -100px;
+
+    border-radius: 50%;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(24,185,104,.08),
+            transparent 68%
+        );
+
+    pointer-events: none;
+}
+
+
+.planner-hero .eyebrow {
+    display: inline-flex;
+    align-items: center;
+
+    gap: 7px;
+
+    color: var(--green-dark);
+
+    font-size: 10px;
+    font-weight: 900;
+
+    letter-spacing: 1.3px;
+}
+
+
+.planner-hero .eyebrow::before {
+    content: "";
+
+    width: 7px;
+    height: 7px;
+
+    border-radius: 50%;
+
+    background: var(--green);
+
+    box-shadow:
+        0 0 0 5px rgba(24,185,104,.10);
+}
+
+
+.planner-hero h1 {
+    margin-top: 10px;
+}
+
+
+.planner-hero p {
+    margin-top: 10px;
+
+    color: var(--muted);
+
+    font-size: 15px;
+}
+
+
+/* =========================================================
+   PLANNER LAYOUT
+   ========================================================= */
+
+.planner-layout {
+    display: grid;
+
+    grid-template-columns:
+        390px
+        minmax(0, 1fr);
+
+    gap: 18px;
+
+    align-items: stretch;
+}
+
+
+/* =========================================================
+   CARD
+   ========================================================= */
+
+.card {
+    background: var(--card);
+
+    border:
+        1px solid var(--border);
+
+    border-radius: var(--radius);
+
+    box-shadow: var(--shadow-sm);
+}
+
+
+/* =========================================================
+   PLANNER FORM CARD
+   ========================================================= */
+
+.planner-layout .card:first-child {
+    padding: 24px;
+
+    position: relative;
+
+    z-index: 20;
+}
+
+
+.planner-layout .card:first-child h2 {
+    color: var(--ink);
+
+    font-size: 20px;
+
+    letter-spacing: -.5px;
+
+    margin-bottom: 20px;
+}
+
+
+.form-group {
+    margin-bottom: 17px;
+}
+
+
+.form-group label {
+    display: block;
+
+    margin-bottom: 8px;
+
+    color: #12263a;
+
+    font-size: 14px;
+    font-weight: 850;
+    line-height: 1.3;
+    letter-spacing: -0.15px;
+}
+
+
+input,
+select,
+textarea {
+    width: 100%;
+
+    min-height: 46px;
+
+    padding:
+        0 13px;
+
+    border:
+        1px solid #d9e2eb;
+
+    border-radius: 10px;
+
+    background: #fbfcfe;
+
+    color: var(--ink);
+
+    outline: none;
+
+    font-size: 13px;
+
+    transition:
+        border-color .2s ease,
+        box-shadow .2s ease,
+        background .2s ease;
+}
+
+
+input::placeholder,
+textarea::placeholder {
+    color: #a2afbd;
+}
+
+
+input:hover,
+select:hover,
+textarea:hover {
+    border-color: #c5d2df;
+}
+
+
+input:focus,
+select:focus,
+textarea:focus {
+    background: white;
+
+    border-color: var(--blue);
+
+    box-shadow:
+        0 0 0 4px
+        rgba(40,124,244,.09);
+}
+
+
+/* =========================================================
+   LOCATION INPUTS
+   ========================================================= */
+
+.location-input {
+    position: relative;
+}
+
+
+.location-input input {
+    padding-left: 39px;
+}
+
+
+.location-input::before {
+    position: absolute;
+
+    left: 14px;
+
+    top: 50%;
+
+    transform:
+        translateY(-50%);
+
+    z-index: 2;
+
+    font-size: 13px;
+}
+
+
+.location-input.source::before {
+    content: "A";
+
+    color: var(--green-dark);
+
+    font-weight: 900;
+}
+
+
+.location-input.destination::before {
+    content: "B";
+
+    color: var(--blue);
+
+    font-weight: 900;
+}
+
+
+/* =========================================================
+   PREFERENCE
+   ========================================================= */
+
+.preference-options {
+    display: grid;
+
+    grid-template-columns:
+        repeat(3, 1fr);
+
+    gap: 7px;
+}
+
+
+.preference-option {
+    position: relative;
+}
+
+
+.preference-option input {
+    position: absolute;
+
+    opacity: 0;
+
+    pointer-events: none;
+}
+
+
+.preference-option label {
+    min-height: 68px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 8px;
+
+    text-align: center;
+
+    border:
+        1px solid var(--border);
+
+    border-radius: 10px;
+
+    background: #fafbfd;
+
+    color: var(--muted);
+
+    font-size: 9px;
+    font-weight: 800;
+
+    cursor: pointer;
+
+    transition: .2s ease;
+}
+
+
+.preference-option label:hover {
+    border-color: #c7d5e3;
+
+    background: white;
+
+    color: var(--ink);
+}
+
+
+.preference-option input:checked + label {
+    border-color:
+        rgba(24,185,104,.45);
+
+    background:
+        var(--green-soft);
+
+    color:
+        var(--green-dark);
+
+    box-shadow:
+        inset 0 0 0 1px
+        rgba(24,185,104,.08);
+}
+
+
+/* =========================================================
+   PRIMARY BUTTON
+   ========================================================= */
+
+.primary-btn,
+.analyze-btn,
+#analyzeBtn {
+    width: 100%;
+
+    min-height: 48px;
+
+    margin-top: 8px;
+
+    border: 0;
+
+    border-radius: 11px;
+
+    background:
+        linear-gradient(
+            135deg,
+            #18b968,
+            #079b51
+        );
+
+    color: white;
+
+    font-size: 13px;
+    font-weight: 850;
+
+    box-shadow:
+        0 9px 22px
+        rgba(24,185,104,.22);
+
+    transition:
+        transform .2s ease,
+        box-shadow .2s ease,
+        filter .2s ease;
+}
+
+
+.primary-btn:hover,
+.analyze-btn:hover,
+#analyzeBtn:hover {
+    transform:
+        translateY(-2px);
+
+    filter: brightness(1.03);
+
+    box-shadow:
+        0 13px 28px
+        rgba(24,185,104,.27);
+}
+
+
+.primary-btn:active,
+.analyze-btn:active,
+#analyzeBtn:active {
+    transform:
+        translateY(0);
+}
+
+
+/* =========================================================
+   MAP
+   ========================================================= */
+
+#plannerMap {
+    width: 100%;
+
+    height: 650px;
+
+    min-height: 450px;
+
+    border-radius: var(--radius);
+
+    overflow: hidden;
+
+    background: #dfe8ec;
+
+    border:
+        1px solid var(--border);
+
+    box-shadow: var(--shadow);
+}
+
+
+.leaflet-container {
+    font-family: inherit;
+
+    background: #e5ecef;
+}
+
+
+.leaflet-control-zoom {
+    border: none !important;
+
+    box-shadow:
+        0 7px 18px rgba(20,45,70,.14) !important;
+}
+
+
+.leaflet-control-zoom a {
+    border: none !important;
+
+    color: var(--ink) !important;
+}
+
+
+/* =========================================================
+   AUTOCOMPLETE
+   ========================================================= */
+
+.autocomplete {
+    position: relative;
+
+    z-index: 5000;
+}
+
+
+.suggestions {
+    position: absolute;
+
+    top: calc(100% + 6px);
+
+    left: 0;
+    right: 0;
+
+    max-height: 250px;
+
+    overflow-y: auto;
+
+    background: white;
+
+    border:
+        1px solid var(--border);
+
+    border-radius: 12px;
+
+    box-shadow: var(--shadow-lg);
+
+    z-index: 99999;
+
+    padding: 5px;
+}
+
+
+.suggestion-item {
+    display: flex;
+    align-items: flex-start;
+
+    gap: 9px;
+
+    padding: 11px;
+
+    border-radius: 8px;
+
+    cursor: pointer;
+
+    color: var(--text);
+
+    font-size: 12px;
+
+    line-height: 1.4;
+
+    transition: .15s ease;
+}
+
+
+.suggestion-item:hover,
+.suggestion-item.active {
+    background: #f0f7ff;
+
+    color: var(--blue);
+}
+
+
+.suggestion-item::before {
+    content: "⌖";
+
+    flex-shrink: 0;
+
+    color: var(--blue);
+
+    font-size: 13px;
+}
+
+
+/* =========================================================
+   LOADING
+   ========================================================= */
+
+.loading,
+.loading-overlay {
+    position: fixed;
+
+    inset: 0;
+
+    z-index: 10000;
+
+    display: none;
+
+    align-items: center;
+    justify-content: center;
+
+    background:
+        rgba(14,28,43,.48);
+
+    backdrop-filter:
+        blur(7px);
+}
+
+
+.loading.show,
+.loading-overlay.show {
+    display: flex;
+}
+
+
+.loading-card {
+    width: min(390px, calc(100% - 30px));
+
+    padding: 30px;
+
+    text-align: center;
+
+    background: white;
+
+    border-radius: 18px;
+
+    box-shadow: var(--shadow-lg);
+}
+
+
+.spinner {
+    width: 42px;
+    height: 42px;
+
+    margin: 0 auto 15px;
+
+    border:
+        4px solid #e7edf3;
+
+    border-top-color:
+        var(--green);
+
+    border-radius: 50%;
+
+    animation:
+        rq-spin .8s linear infinite;
+}
+
+
+@keyframes rq-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+
+/* =========================================================
+   ERROR
+   ========================================================= */
+
+.error,
+.error-message {
+    margin-top: 10px;
+
+    padding: 10px 12px;
+
+    border-radius: 9px;
+
+    background: #fff0f0;
+
+    border:
+        1px solid #ffd0d0;
+
+    color: #bd3838;
+
+    font-size: 11px;
+
+    line-height: 1.5;
+}
+
+
+/* =========================================================
+   RECOMMENDATION COMPATIBILITY
+   ========================================================= */
+
+.recommendation-page {
+    --rq-green: #18b968;
+    --rq-green-dark: #07944d;
+    --rq-blue: #287cf4;
+    --rq-orange: #f59a23;
+}
+
+
+/*
+   The recommendation-specific design is loaded by
+   recommendation.css.
+
+   These rules prevent the old dashboard styles from
+   breaking the recommendation page.
+*/
+
+.recommendation-page .rq-sidebar {
+    display: none !important;
+}
+
+
+.recommendation-page .rq-main {
+    width: 100% !important;
+    margin: 0 !important;
+}
+
+
+.recommendation-page .rq-shell {
+    display: block !important;
+}
+
+
+/* =========================================================
+   NAVIGATION PAGE
+   ========================================================= */
+
+.navigation-page {
+    overflow: hidden;
+
+    background: #eef2f5;
+}
+
+
+.navigation-page .topbar {
+    position: fixed;
+
+    top: 0;
+    left: 0;
+    right: 0;
+
+    z-index: 5000;
+}
+
+
+#navigationMap {
+    position: fixed;
+
+    top: var(--header-height);
+
+    left: 0;
+    right: 0;
+    bottom: 0;
+
+    width: 100%;
+
+    height:
+        calc(100vh - var(--header-height));
+
+    min-height: 400px;
+}
+
+
+.navigation-page .page {
+    width: 100%;
+
+    padding: 0;
+
+    margin: 0;
+}
+
+
+.navigation-panel {
+    position: fixed;
+
+    z-index: 4000;
+
+    top:
+        calc(var(--header-height) + 18px);
+
+    left: 18px;
+
+    width: min(380px, calc(100vw - 36px));
+
+    padding: 16px;
+
+    background:
+        rgba(255,255,255,.96);
+
+    border:
+        1px solid var(--border);
+
+    border-radius: 16px;
+
+    box-shadow: var(--shadow-lg);
+
+    backdrop-filter: blur(15px);
+}
+
+
+/* =========================================================
+   ROUTE COLORS
+   ========================================================= */
+
+.route-green {
+    color: var(--green);
+}
+
+
+.route-blue {
+    color: var(--blue);
+}
+
+
+.route-orange {
+    color: var(--orange);
+}
+
+
+.legend {
+    display: flex;
+
+    flex-wrap: wrap;
+
+    gap: 10px;
+}
+
+
+.legend-item {
+    display: flex;
+    align-items: center;
+
+    gap: 6px;
+
+    color: var(--muted);
+
+    font-size: 10px;
+    font-weight: 700;
+}
+
+
+.legend-color {
+    width: 26px;
+    height: 5px;
+
+    border-radius: 20px;
+}
+
+
+.legend-color.green {
+    background: var(--green);
+}
+
+
+.legend-color.blue {
+    background: var(--blue);
+}
+
+
+.legend-color.orange {
+    background: var(--orange);
+}
+
+
+/* =========================================================
+   GENERIC ROUTE CARDS
+   ========================================================= */
+
+.route-comparison-card,
+.route-card {
+    padding: 14px;
+
+    background: white;
+
+    border:
+        1px solid var(--border);
+
+    border-radius: 12px;
+
+    transition: .2s ease;
+}
+
+
+.route-comparison-card:hover,
+.route-card:hover {
+    transform:
+        translateY(-2px);
+
+    box-shadow: var(--shadow-sm);
+
+    border-color:
+        #cad7e3;
+}
+
+
+.route-card-header {
+    display: flex;
+    align-items: center;
+
+    justify-content: space-between;
+
+    gap: 10px;
+}
+
+
+.route-number {
+    width: 28px;
+    height: 28px;
+
+    display: grid;
+    place-items: center;
+
+    border-radius: 8px;
+
+    background: var(--blue-soft);
+
+    color: var(--blue);
+
+    font-size: 10px;
+    font-weight: 900;
+}
+
+
+.route-card-stats {
+    display: grid;
+
+    grid-template-columns:
+        repeat(3, 1fr);
+
+    gap: 7px;
+
+    margin-top: 10px;
+}
+
+
+.route-card-stats > div {
+    padding: 7px;
+
+    background: #f8fafc;
+
+    border-radius: 8px;
+}
+
+
+.route-card-stats small {
+    display: block;
+
+    color: var(--light);
+
+    font-size: 7px;
+    font-weight: 900;
+}
+
+
+.route-card-stats strong {
+    display: block;
+
+    margin-top: 3px;
+
+    color: var(--ink);
+
+    font-size: 10px;
+}
+
+
+/* =========================================================
+   HEALTH
+   ========================================================= */
+
+.health-good {
+    color: var(--green-dark);
+}
+
+
+.health-moderate {
+    color: #d47b0b;
+}
+
+
+.health-poor {
+    color: #d33e3e;
+}
+
+
+.health-critical {
+    color: #a82727;
+}
+
+
+.health-badge {
+    display: inline-flex;
+    align-items: center;
+
+    gap: 5px;
+
+    padding: 5px 8px;
+
+    border-radius: 20px;
+
+    font-size: 8px;
+    font-weight: 900;
+}
+
+
+.health-badge.good {
+    background: var(--green-soft);
+
+    color: var(--green-dark);
+}
+
+
+.health-badge.moderate {
+    background: var(--orange-soft);
+
+    color: #c57406;
+}
+
+
+.health-badge.poor {
+    background: #fff0f0;
+
+    color: #ca3f3f;
+}
+
+
+/* =========================================================
+   SCROLLBAR
+   ========================================================= */
+
+* {
+    scrollbar-width: thin;
+
+    scrollbar-color:
+        #c9d3de
+        transparent;
+}
+
+
+::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+}
+
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+
+::-webkit-scrollbar-thumb {
+    background: #c9d3de;
+
+    border-radius: 20px;
+}
+
+
+/* =========================================================
+   MOBILE HEADER
+   ========================================================= */
+
+@media (max-width: 800px) {
+
+    :root {
+        --header-height: 62px;
+    }
+
+
+    .topbar {
+        padding: 0 14px;
+    }
+
+
+    .brand {
+        font-size: 17px;
+    }
+
+
+    .brand::before {
+        width: 33px;
+        height: 33px;
+
+        border-radius: 9px;
+    }
+
+
+    .nav {
+        gap: 1px;
+    }
+
+
+    .nav a {
+        padding: 8px 9px;
+
+        font-size: 10px;
+    }
+
+
+    .page {
+        width:
+            calc(100% - 22px);
+
+        padding:
+            24px 0 40px;
+    }
+
+
+    .planner-layout {
+        grid-template-columns: 1fr;
+    }
+
+
+    #plannerMap {
+        height: 500px;
+
+        min-height: 400px;
+
+        order: -1;
+    }
+
+
+    .planner-layout .card:first-child {
+        padding: 18px;
+    }
+
+}
+
+
+/* =========================================================
+   SMALL MOBILE
+   ========================================================= */
+
+@media (max-width: 520px) {
+
+    .nav a:nth-child(2) {
+        display: none;
+    }
+
+
+    .page h1 {
+        font-size: 31px;
+
+        letter-spacing: -1.2px;
+    }
+
+
+    .page-subtitle {
+        font-size: 13px;
+    }
+
+
+    .planner-layout {
+        gap: 12px;
+    }
+
+
+    #plannerMap {
+        height: 430px;
+
+        min-height: 360px;
+
+        border-radius: 13px;
+    }
+
+
+    .preference-options {
+        gap: 5px;
+    }
+
+
+    .preference-option label {
+        min-height: 60px;
+
+        font-size: 8px;
+    }
+
+
+    input,
+    select {
+        min-height: 45px;
+
+        font-size: 12px;
+    }
+
+
+    .primary-btn,
+    .analyze-btn,
+    #analyzeBtn {
+        min-height: 48px;
+    }
+
+
+    .suggestions {
+        max-height: 220px;
+    }
+
+
+    .suggestion-item {
+        padding: 10px;
+
+        font-size: 11px;
+    }
+
+
+    #navigationMap {
+        top: var(--header-height);
+
+        height:
+            calc(100vh - var(--header-height));
+    }
+
+
+    .navigation-panel {
+        top:
+            calc(var(--header-height) + 10px);
+
+        left: 10px;
+
+        width:
+            calc(100vw - 20px);
+
+        border-radius: 14px;
+    }
+
+}
+
+
+/* =========================================================
+   VERY SMALL DEVICES
+   ========================================================= */
+
+@media (max-width: 360px) {
+
+    .brand {
+        font-size: 15px;
+    }
+
+
+    .nav a {
+        padding: 7px 6px;
+
+        font-size: 9px;
+    }
+
+
+    .page {
+        width:
+            calc(100% - 16px);
+    }
+
+
+    #plannerMap {
+        height: 390px;
+    }
+
+}
+
+
+/* =========================================================
+   ACCESSIBILITY
+   ========================================================= */
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+    outline:
+        3px solid
+        rgba(40,124,244,.25);
+
+    outline-offset: 2px;
+}
+
+
+/* =========================================================
+   REDUCED MOTION
+   ========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: .01ms !important;
+
+        animation-iteration-count: 1 !important;
+
+        scroll-behavior: auto !important;
+
+        transition-duration: .01ms !important;
+    }
+
+}
+
+/* =========================================================
+   ROUTE PLANNER FIELD LABELS
+   ========================================================= */
+
+.planner-page .location-input label,
+.planner-page .preference-section > label {
+    display: block;
+
+    margin-bottom: 8px;
+
+    color: #14263a;
+
+    font-size: 14px;
+
+    font-weight: 800;
+
+    line-height: 1.3;
+
+    letter-spacing: -0.1px;
+}
+
+
+/* Slightly stronger emphasis for location labels */
+
+.planner-page .location-input label {
+    color: #12263a;
+
+    font-size: 14px;
+
+    font-weight: 850;
+}
+
+
+/* Preference label */
+
+.planner-page .preference-section > label {
+    color: #1b3045;
+
+    font-size: 13px;
+
+    font-weight: 800;
+}

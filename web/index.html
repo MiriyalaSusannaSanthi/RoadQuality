@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>RoadQuality | Smart Route Planner</title>
+
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<header class="topbar">
+
+    <div class="logo">
+        <span>◉</span>
+        RoadQuality
+    </div>
+
+    <nav>
+        <a href="index.html" class="active">Route Planner</a>
+        <a href="navigation.html">Navigation</a>
+    </nav>
+
+</header>
+
+
+<main class="planner-page">
+
+    <section class="planner-card">
+
+        <div class="planner-title">
+
+            <div>
+                <span class="eyebrow">
+                    SMART ROUTE PLANNER
+                </span>
+
+                <h1>
+                    Find a better road.
+                </h1>
+
+                <p>
+                    Compare routes using AI-based road condition analysis.
+                </p>
+            </div>
+
+        </div>
+
+
+        <form id="routeForm">
+
+            <div class="location-input">
+
+                <div class="location-dot start-dot"></div>
+
+                <div class="input-content">
+
+                    <label for="source">
+                        Starting point
+                    </label>
+
+                    <input
+                        id="source"
+                        type="text"
+                        placeholder="Enter your starting location"
+                        required
+                        autocomplete="off">
+
+                </div>
+
+                <button
+                    type="button"
+                    class="location-button"
+                    id="useLocationBtn"
+                    title="Use my current location">
+
+                    ◎
+
+                </button>
+
+            </div>
+
+
+            <div class="route-line"></div>
+
+
+            <div class="location-input">
+
+                <div class="location-dot destination-dot"></div>
+
+                <div class="input-content">
+
+                    <label for="destination">
+                        Destination
+                    </label>
+
+                    <input
+                        id="destination"
+                        type="text"
+                        placeholder="Where do you want to go?"
+                        required
+                        autocomplete="off">
+
+                </div>
+
+            </div>
+
+
+            <div class="preference-section">
+
+                <label for="preference">
+                    Route preference
+                </label>
+
+                <select id="preference">
+
+                    <option value="balanced">
+                        Balanced
+                    </option>
+
+                    <option value="road_condition">
+                        Best Road Condition
+                    </option>
+
+                    <option value="fastest">
+                        Fastest
+                    </option>
+
+                </select>
+
+            </div>
+
+
+            <button
+                type="submit"
+                class="analyze-btn"
+                id="analyzeBtn">
+
+                <span>
+                    Analyze Route
+                </span>
+
+                <span>
+                    →
+                </span>
+
+            </button>
+
+        </form>
+
+
+        <div
+            id="errorBox"
+            class="error-box"
+            hidden>
+        </div>
+
+    </section>
+
+
+    <section class="map-card">
+
+        <div id="plannerMap"></div>
+
+        <div class="map-overlay">
+
+            <span class="status-dot"></span>
+
+            Road network ready
+
+        </div>
+
+    </section>
+
+</main>
+
+
+<div
+    id="loadingOverlay"
+    class="loading-overlay"
+    hidden>
+
+    <div class="loader"></div>
+
+    <h3>
+        Analyzing routes...
+    </h3>
+
+    <p>
+        AI is evaluating road conditions and route quality.
+    </p>
+
+</div>
+
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script src="app.js"></script>
+
+</body>
+</html>

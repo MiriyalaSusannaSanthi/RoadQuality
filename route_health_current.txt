@@ -1,0 +1,566 @@
+from pathlib import Path
+import csv
+
+
+# ============================================================
+# ROADQUALITY - ROUTE HEALTH ENGINE
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+AI_DATABASE = BASE_DIR / "ai_osm_segment_scores.csv"
+OSM_DATABASE = BASE_DIR / "road_segment_scores.csv"
+
+
+# ============================================================
+# NORMALIZE EDGE
+# ============================================================
+
+def normalize_edge(u, v, key):
+    """
+    Create an undirected road-segment key.
+
+    OSM routing may traverse a road in either direction.
+    Therefore:
+
+        (u, v, key)
+
+    and
+
+        (v, u, key)
+
+    are treated as the same physical road segment.
+    """
+
+    u = int(u)
+    v = int(v)
+    key = int(key)
+
+    if u <= v:
+        return (u, v, key)
+
+    return (v, u, key)
+
+
+# ============================================================
+# LOAD AI OSM SEGMENTS
+# ============================================================
+
+def load_ai_osm_segments():
+
+    segments = {}
+
+    if not AI_DATABASE.exists():
+
+        print("\nWARNING: AI OSM database not found:")
+        print(AI_DATABASE)
+
+        return segments
+
+    with open(
+        AI_DATABASE,
+        "r",
+        encoding="utf-8"
+    ) as f:
+
+        reader = csv.DictReader(f)
+
+        for row in reader:
+
+            try:
+
+                u = int(row["u"])
+                v = int(row["v"])
+                key = int(row["key"])
+
+                health = float(
+                    row["health_score"]
+                )
+
+                condition = row.get(
+                    "condition",
+                    ""
+                )
+
+                image = row.get(
+                    "image",
+                    ""
+                )
+
+                segment_key = normalize_edge(
+                    u,
+                    v,
+                    key
+                )
+
+                # ------------------------------------------------
+                # If the same physical segment appears more than
+                # once, keep the latest valid AI observation.
+                # ------------------------------------------------
+
+                segments[segment_key] = {
+
+                    "health_score": health,
+
+                    "condition": condition,
+
+                    "image": image,
+
+                    "source_u": u,
+
+                    "source_v": v,
+
+                    "source_key": key
+                }
+
+            except (
+                ValueError,
+                TypeError,
+                KeyError
+            ):
+
+                continue
+
+    return segments
+
+
+# ============================================================
+# LOAD GENERAL OSM ROAD SEGMENTS
+# ============================================================
+
+def load_osm_segments():
+
+    segments = {}
+
+    if not OSM_DATABASE.exists():
+
+        print("\nWARNING: OSM road database not found:")
+        print(OSM_DATABASE)
+
+        return segments
+
+    with open(
+        OSM_DATABASE,
+        "r",
+        encoding="utf-8"
+    ) as f:
+
+        reader = csv.DictReader(f)
+
+        for row in reader:
+
+            try:
+
+                u = int(row["u"])
+                v = int(row["v"])
+                key = int(row["key"])
+
+                health = float(
+                    row["health_score"]
+                )
+
+                segment_key = normalize_edge(
+                    u,
+                    v,
+                    key
+                )
+
+                # ------------------------------------------------
+                # If duplicate/reverse records exist, retain
+                # the first valid value.
+                # ------------------------------------------------
+
+                if segment_key not in segments:
+
+                    segments[segment_key] = health
+
+            except (
+                ValueError,
+                TypeError,
+                KeyError
+            ):
+
+                continue
+
+    return segments
+
+
+# ============================================================
+# LOAD BOTH DATABASES
+# ============================================================
+
+def load_databases():
+
+    ai_segments = load_ai_osm_segments()
+
+    osm_segments = load_osm_segments()
+
+    print(
+        f"\nAI OSM lookup entries loaded: "
+        f"{len(ai_segments)}"
+    )
+
+    print(
+        f"OSM baseline lookup entries loaded: "
+        f"{len(osm_segments)}"
+    )
+
+    return ai_segments, osm_segments
+
+
+# ============================================================
+# CONDITION FROM HEALTH SCORE
+# ============================================================
+
+def get_condition(health):
+
+    if health >= 85:
+
+        return "Good"
+
+    elif health >= 70:
+
+        return "Moderate"
+
+    elif health >= 50:
+
+        return "Poor"
+
+    else:
+
+        return "Very Poor"
+
+
+# ============================================================
+# CALCULATE ROUTE HEALTH
+# ============================================================
+
+def calculate_route_health(
+    route_edges,
+    ai_segments=None,
+    osm_segments=None
+):
+
+    if ai_segments is None:
+
+        ai_segments = load_ai_osm_segments()
+
+    if osm_segments is None:
+
+        osm_segments = load_osm_segments()
+
+
+    # --------------------------------------------------------
+    # Statistics
+    # --------------------------------------------------------
+
+    total_segments = len(route_edges)
+
+    ai_matches = []
+
+    osm_matches = []
+
+    unavailable = []
+
+
+    # --------------------------------------------------------
+    # MATCH EVERY ROUTE EDGE
+    # --------------------------------------------------------
+
+    for edge in route_edges:
+
+        if len(edge) != 3:
+
+            continue
+
+        u, v, key = edge
+
+        segment_key = normalize_edge(
+            u,
+            v,
+            key
+        )
+
+
+        # ====================================================
+        # AI HAS PRIORITY
+        # ====================================================
+
+        if segment_key in ai_segments:
+
+            data = ai_segments[
+                segment_key
+            ]
+
+            ai_matches.append({
+
+                "edge": segment_key,
+
+                "health_score":
+                    float(
+                        data[
+                            "health_score"
+                        ]
+                    ),
+
+                "condition":
+                    data.get(
+                        "condition",
+                        get_condition(
+                            data[
+                                "health_score"
+                            ]
+                        )
+                    ),
+
+                "image":
+                    data.get(
+                        "image",
+                        ""
+                    ),
+
+                "source":
+                    "AI"
+            })
+
+
+        # ====================================================
+        # OTHERWISE USE OSM BASELINE
+        # ====================================================
+
+        elif segment_key in osm_segments:
+
+            health_score = float(
+                osm_segments[
+                    segment_key
+                ]
+            )
+
+            osm_matches.append({
+
+                "edge": segment_key,
+
+                "health_score":
+                    health_score,
+
+                "condition":
+                    get_condition(
+                        health_score
+                    ),
+
+                "source":
+                    "OSM"
+            })
+
+
+        # ====================================================
+        # NO DATA
+        # ====================================================
+
+        else:
+
+            unavailable.append(
+                segment_key
+            )
+
+
+    # ========================================================
+    # COMBINED HEALTH
+    # ========================================================
+
+    all_scores = []
+
+
+    for item in ai_matches:
+
+        all_scores.append(
+            item["health_score"]
+        )
+
+
+    for item in osm_matches:
+
+        all_scores.append(
+            item["health_score"]
+        )
+
+
+    if all_scores:
+
+        health = (
+            sum(all_scores)
+            /
+            len(all_scores)
+        )
+
+    else:
+
+        health = None
+
+
+    # ========================================================
+    # CONDITION
+    # ========================================================
+
+    if health is None:
+
+        condition = "Unknown"
+
+    else:
+
+        condition = get_condition(
+            health
+        )
+
+
+    # ========================================================
+    # COVERAGE
+    # ========================================================
+
+    if total_segments > 0:
+
+        ai_coverage = (
+            len(ai_matches)
+            /
+            total_segments
+        ) * 100
+
+        overall_coverage = (
+
+            (
+                len(ai_matches)
+                +
+                len(osm_matches)
+            )
+
+            /
+
+            total_segments
+
+        ) * 100
+
+    else:
+
+        ai_coverage = 0.0
+
+        overall_coverage = 0.0
+
+
+    # ========================================================
+    # RESULT
+    # ========================================================
+
+    return {
+
+        "health":
+            (
+                round(
+                    health,
+                    2
+                )
+
+                if health is not None
+
+                else None
+            ),
+
+        "condition":
+            condition,
+
+        "matched_observations":
+            len(ai_matches),
+
+        "observation_count":
+            len(ai_matches),
+
+        "ai_matches":
+            ai_matches,
+
+        "osm_matches":
+            osm_matches,
+
+        "ai_segment_count":
+            len(ai_matches),
+
+        "osm_segment_count":
+            len(osm_matches),
+
+        "unavailable_segment_count":
+            len(unavailable),
+
+        "ai_coverage":
+            round(
+                ai_coverage,
+                2
+            ),
+
+        "coverage":
+            round(
+                overall_coverage,
+                2
+            ),
+
+        "total_segments":
+            total_segments,
+
+        "unavailable_segments":
+            unavailable
+    }
+
+
+# ============================================================
+# TEST WHEN RUN DIRECTLY
+# ============================================================
+
+if __name__ == "__main__":
+
+    print("=" * 70)
+
+    print(
+        "ROADQUALITY - AI + OSM "
+        "ROUTE HEALTH ENGINE"
+    )
+
+    print("=" * 70)
+
+
+    ai_segments, osm_segments = (
+        load_databases()
+    )
+
+
+    print("\n" + "=" * 70)
+    print("DATABASE SUMMARY")
+    print("=" * 70)
+
+    print(
+        "AI lookup entries  :",
+        len(ai_segments)
+    )
+
+    print(
+        "OSM lookup entries :",
+        len(osm_segments)
+    )
+
+
+    # --------------------------------------------------------
+    # Verify overlap
+    # --------------------------------------------------------
+
+    overlap = set(
+        ai_segments.keys()
+    ).intersection(
+        osm_segments.keys()
+    )
+
+
+    print(
+        "AI/OSM lookup overlap:",
+        len(overlap)
+    )
+
+
+    print("\n" + "=" * 70)
+    print("ENGINE READY")
+    print("=" * 70)

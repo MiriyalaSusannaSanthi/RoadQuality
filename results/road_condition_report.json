@@ -1,0 +1,12 @@
+[
+    {
+        "road_health_score": 92.22,
+        "condition": "Good",
+        "defect_counts": {
+            "D20_Alligator_Crack": 1
+        },
+        "total_detections": 1,
+        "damage_score": 7.78,
+        "image": "test_road.jpg"
+    }
+]

@@ -1,0 +1,1543 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>RoadQuality | Route Analysis</title>
+
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <!-- KEEP YOUR ORIGINAL style.css -->
+    <link rel="stylesheet" href="style.css">
+
+    <!-- RECOMMENDATION-ONLY CSS -->
+    <link rel="stylesheet" href="recommendation.css">
+</head>
+
+
+<body class="recommendation-page">
+
+<header class="rq-header">
+
+    <a href="index.html" class="rq-logo">
+        <div class="rq-logo-mark">RQ</div>
+
+        <div class="rq-logo-text">
+            Road<span>Quality</span>
+        </div>
+    </a>
+
+
+    <nav class="rq-nav">
+
+        <a href="index.html">
+            Planner
+        </a>
+
+        <a href="recommendation.html" class="active">
+            Analysis
+        </a>
+
+        <a href="navigation.html">
+            Navigation
+        </a>
+
+    </nav>
+
+
+    <button
+        class="rq-new-route"
+        onclick="window.location.href='index.html'">
+
+        + New Route
+
+    </button>
+
+</header>
+
+
+
+<main class="rq-page">
+
+
+    <!-- =====================================================
+         TITLE
+         ===================================================== -->
+
+    <section class="rq-heading">
+
+        <div>
+
+            <div class="rq-overline">
+                <span></span>
+                AI ROUTE ANALYSIS
+            </div>
+
+            <h1>
+                Find the better road.
+            </h1>
+
+            <p id="routeSummary">
+                Comparing routes using road condition,
+                distance and travel time.
+            </p>
+
+        </div>
+
+
+        <div class="rq-route-summary">
+
+            <div class="rq-place">
+
+                <div class="rq-marker from">
+                    A
+                </div>
+
+                <div>
+                    <small>FROM</small>
+                    <strong id="journeySource">
+                        —
+                    </strong>
+                </div>
+
+            </div>
+
+
+            <div class="rq-arrow">
+                →
+            </div>
+
+
+            <div class="rq-place">
+
+                <div class="rq-marker to">
+                    B
+                </div>
+
+                <div>
+                    <small>TO</small>
+                    <strong id="journeyDestination">
+                        —
+                    </strong>
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+
+    <!-- =====================================================
+         MAP + ROUTES
+         ===================================================== -->
+
+    <section class="rq-main-grid">
+
+
+        <!-- ================= MAP ================= -->
+
+        <div class="rq-map-card">
+
+            <div id="recommendationMap"></div>
+
+
+            <div class="rq-map-title">
+
+                <div class="rq-map-title-icon">
+                    ◉
+                </div>
+
+                <div>
+                    <strong>Route Overview</strong>
+                    <span>AI + OpenStreetMap</span>
+                </div>
+
+            </div>
+
+
+            <!-- LEGEND -->
+
+            <div class="rq-legend">
+
+                <div class="rq-legend-title">
+                    ROUTE COLORS
+                </div>
+
+
+                <div class="rq-legend-row">
+
+                    <span class="rq-color green"></span>
+
+                    <div>
+                        <strong>Recommended</strong>
+                        <small>Best overall route</small>
+                    </div>
+
+                </div>
+
+
+                <div class="rq-legend-row">
+
+                    <span class="rq-color blue"></span>
+
+                    <div>
+                        <strong>Alternative 1</strong>
+                        <small>Other available route</small>
+                    </div>
+
+                </div>
+
+
+                <div class="rq-legend-row">
+
+                    <span class="rq-color orange"></span>
+
+                    <div>
+                        <strong>Alternative 2</strong>
+                        <small>Other available route</small>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+
+        <!-- ================= ROUTE PANEL ================= -->
+
+        <aside class="rq-route-panel">
+
+
+            <div class="rq-panel-header">
+
+                <div>
+
+                    <span>ROUTE OPTIONS</span>
+
+                    <h2>
+                        Choose your route
+                    </h2>
+
+                </div>
+
+
+                <div
+                    id="routeCount"
+                    class="rq-route-count">
+
+                    0 routes
+
+                </div>
+
+            </div>
+
+
+
+            <!-- RECOMMENDED ROUTE -->
+
+            <div class="rq-best-route">
+
+                <div class="rq-best-header">
+
+                    <div class="rq-best-name">
+
+                        <span
+                            class="rq-color green">
+                        </span>
+
+                        <div>
+
+                            <small>
+                                RECOMMENDED ROUTE
+                            </small>
+
+                            <h3 id="recommendedName">
+                                —
+                            </h3>
+
+                        </div>
+
+                    </div>
+
+
+                    <span class="rq-best-badge">
+                        BEST MATCH
+                    </span>
+
+                </div>
+
+
+                <p id="recommendationReason">
+                    Selected based on your route preference.
+                </p>
+
+
+                <div class="rq-health-row">
+
+                    <div class="rq-health-circle">
+
+                        <strong id="recommendedHealth">
+                            —
+                        </strong>
+
+                        <small>
+                            /100
+                        </small>
+
+                    </div>
+
+
+                    <div>
+
+                        <small>
+                            ROAD HEALTH
+                        </small>
+
+                        <strong id="recommendedCondition">
+                            —
+                        </strong>
+
+                    </div>
+
+                </div>
+
+
+                <div class="rq-best-stats">
+
+                    <div>
+                        <small>DISTANCE</small>
+                        <strong id="recommendedDistance">
+                            —
+                        </strong>
+                    </div>
+
+                    <div>
+                        <small>TIME</small>
+                        <strong id="recommendedTime">
+                            —
+                        </strong>
+                    </div>
+
+                    <div>
+                        <small>SCORE</small>
+                        <strong id="recommendedScore">
+                            —
+                        </strong>
+                    </div>
+
+                </div>
+
+
+                <button
+                    id="startNavigationBtn"
+                    class="rq-navigation-btn">
+
+                    <span>➤</span>
+
+                    Start Navigation
+
+                </button>
+
+            </div>
+
+
+
+            <!-- OTHER ROUTES -->
+
+            <div class="rq-section-title">
+
+                <span>OTHER ROUTES</span>
+
+                <div></div>
+
+            </div>
+
+
+            <!-- IMPORTANT:
+                 We render cards directly here -->
+
+            <div
+                id="routeComparison"
+                class="route-comparison-grid">
+
+            </div>
+
+
+            <div
+                id="routeEmpty"
+                class="rq-empty"
+                style="display:none;">
+
+                <div>
+                    No alternative routes available.
+                </div>
+
+            </div>
+
+        </aside>
+
+    </section>
+
+
+
+    <!-- =====================================================
+         METRICS
+         ===================================================== -->
+
+    <section class="rq-metrics">
+
+
+        <div class="rq-metric">
+
+            <div class="rq-metric-icon green">
+                ♥
+            </div>
+
+            <div>
+
+                <small>
+                    BEST ROAD HEALTH
+                </small>
+
+                <strong id="metricHealth">
+                    —
+                </strong>
+
+                <span>
+                    Recommended route
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <div class="rq-metric">
+
+            <div class="rq-metric-icon blue">
+                ◈
+            </div>
+
+            <div>
+
+                <small>
+                    ROAD COVERAGE
+                </small>
+
+                <strong id="metricCoverage">
+                    —
+                </strong>
+
+                <span>
+                    AI + OSM observations
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <div class="rq-metric">
+
+            <div class="rq-metric-icon purple">
+                ≡
+            </div>
+
+            <div>
+
+                <small>
+                    ROAD SEGMENTS
+                </small>
+
+                <strong id="metricSegments">
+                    —
+                </strong>
+
+                <span>
+                    Selected route
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <div class="rq-metric">
+
+            <div class="rq-metric-icon orange">
+                ◷
+            </div>
+
+            <div>
+
+                <small>
+                    EST. TRAVEL TIME
+                </small>
+
+                <strong id="metricTime">
+                    —
+                </strong>
+
+                <span>
+                    Recommended route
+                </span>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+
+    <!-- =====================================================
+         AI EXPLANATION
+         ===================================================== -->
+
+    <section class="rq-ai">
+
+        <div class="rq-ai-icon">
+            ✦
+        </div>
+
+        <div>
+
+            <small>
+                ROADQUALITY AI
+            </small>
+
+            <h2>
+                Why this route?
+            </h2>
+
+            <p id="aiExplanation">
+                RoadQuality compares road condition,
+                distance, travel time and route score
+                to recommend the most suitable route.
+            </p>
+
+        </div>
+
+    </section>
+
+
+
+    <!-- =====================================================
+         LEGACY TARGET
+         ===================================================== -->
+
+    <div
+        id="alternativeRoutes"
+        style="display:none;">
+    </div>
+
+
+</main>
+
+
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
+<script src="app.js"></script>
+
+
+
+<!-- =========================================================
+     ROUTE UI REPAIR
+     ========================================================= -->
+
+<script>
+
+(function () {
+
+    "use strict";
+
+
+    function byId(id) {
+        return document.getElementById(id);
+    }
+
+
+    function text(id, value) {
+
+        const el = byId(id);
+
+        if (el) {
+            el.textContent =
+                value === null ||
+                value === undefined ||
+                value === ""
+                    ? "—"
+                    : value;
+        }
+
+    }
+
+
+    function number(value, fallback = 0) {
+
+        const n =
+            Number(value);
+
+        return Number.isFinite(n)
+            ? n
+            : fallback;
+
+    }
+
+
+    function healthValue(route) {
+
+        const value =
+            route.road_health ??
+            route.health ??
+            route.health_score;
+
+        if (
+            value === null ||
+            value === undefined ||
+            value === ""
+        ) {
+            return null;
+        }
+
+        const n = Number(value);
+
+        return Number.isFinite(n)
+            ? n
+            : null;
+
+    }
+
+
+    function routeCondition(route) {
+
+        return (
+            route.condition ||
+            route.road_condition ||
+            "Unknown"
+        );
+
+    }
+
+
+    function routeScore(route) {
+
+        return number(
+            route.final_score ??
+            route.score ??
+            route.route_score,
+            0
+        );
+
+    }
+
+
+    function routeDistance(route) {
+
+        return number(
+            route.distance ??
+            route.distance_km,
+            0
+        );
+
+    }
+
+
+    function routeTime(route) {
+
+        return number(
+            route.travel_time ??
+            route.travel_time_minutes ??
+            route.time,
+            0
+        );
+
+    }
+
+
+    function formatTime(minutes) {
+
+        minutes =
+            number(minutes, 0);
+
+
+        if (minutes < 60) {
+
+            return (
+                Math.round(minutes) +
+                " min"
+            );
+
+        }
+
+
+        const hours =
+            Math.floor(
+                minutes / 60
+            );
+
+
+        const mins =
+            Math.round(
+                minutes % 60
+            );
+
+
+        if (mins === 0) {
+
+            return (
+                hours +
+                (hours === 1
+                    ? " hr"
+                    : " hrs")
+            );
+
+        }
+
+
+        return (
+            hours +
+            " hr " +
+            mins +
+            " min"
+        );
+
+    }
+
+
+    function healthClass(value) {
+
+        if (value === null) {
+            return "unknown";
+        }
+
+
+        if (value >= 80) {
+            return "good";
+        }
+
+
+        if (value >= 60) {
+            return "moderate";
+        }
+
+
+        return "poor";
+
+    }
+
+
+    function getStoredAnalysis() {
+
+        const raw =
+            localStorage.getItem(
+                "roadqualityAnalysis"
+            );
+
+
+        if (!raw) {
+            return null;
+        }
+
+
+        try {
+
+            return JSON.parse(raw);
+
+        } catch (error) {
+
+            console.error(
+                "RoadQuality stored data error:",
+                error
+            );
+
+            return null;
+
+        }
+
+    }
+
+
+    function getRoutes(data) {
+
+        if (!data) {
+            return [];
+        }
+
+
+        let routes =
+            data.routes ||
+            data.route_results ||
+            data.recommended_routes ||
+            [];
+
+
+        if (!Array.isArray(routes)) {
+            return [];
+        }
+
+
+        return routes.filter(function (route) {
+
+            return (
+                route &&
+                typeof route === "object"
+            );
+
+        });
+
+    }
+
+
+    function getRecommended(data, routes) {
+
+        if (!data) {
+            return routes[0] || null;
+        }
+
+
+        const recommendedName =
+            data.recommended_route ||
+            data.recommendedRoute ||
+            "";
+
+
+        if (recommendedName) {
+
+            const found =
+                routes.find(function (route) {
+
+                    return (
+                        route.name ===
+                        recommendedName
+                    );
+
+                });
+
+
+            if (found) {
+                return found;
+            }
+
+        }
+
+
+        const index =
+            Number(
+                data.recommended_route_index
+            );
+
+
+        if (
+            Number.isInteger(index) &&
+            routes[index]
+        ) {
+            return routes[index];
+        }
+
+
+        return routes[0] || null;
+
+    }
+
+
+    function renderJourney(data) {
+
+        if (!data) {
+            return;
+        }
+
+
+        const source =
+            data.source;
+
+
+        const destination =
+            data.destination;
+
+
+        let sourceName =
+            "";
+
+
+        let destinationName =
+            "";
+
+
+        if (
+            source &&
+            typeof source === "object"
+        ) {
+
+            sourceName =
+                source.name || "";
+
+        } else {
+
+            sourceName =
+                source || "";
+
+        }
+
+
+        if (
+            destination &&
+            typeof destination === "object"
+        ) {
+
+            destinationName =
+                destination.name || "";
+
+        } else {
+
+            destinationName =
+                destination || "";
+
+        }
+
+
+        text(
+            "journeySource",
+            sourceName
+        );
+
+
+        text(
+            "journeyDestination",
+            destinationName
+        );
+
+
+        if (
+            sourceName &&
+            destinationName
+        ) {
+
+            text(
+                "routeSummary",
+                "Comparing routes from " +
+                sourceName +
+                " to " +
+                destinationName +
+                "."
+            );
+
+        }
+
+    }
+
+
+    function renderRecommended(data, recommended) {
+
+        if (!recommended) {
+            return;
+        }
+
+
+        const health =
+            healthValue(recommended);
+
+
+        const condition =
+            routeCondition(recommended);
+
+
+        const distance =
+            routeDistance(recommended);
+
+
+        const time =
+            routeTime(recommended);
+
+
+        const score =
+            routeScore(recommended);
+
+
+        text(
+            "recommendedName",
+            recommended.name ||
+            "Recommended Route"
+        );
+
+
+        text(
+            "recommendedHealth",
+            health === null
+                ? "N/A"
+                : Math.round(health)
+        );
+
+
+        text(
+            "recommendedCondition",
+            condition
+        );
+
+
+        text(
+            "recommendedDistance",
+            distance.toFixed(2) +
+            " km"
+        );
+
+
+        text(
+            "recommendedTime",
+            formatTime(time)
+        );
+
+
+        text(
+            "recommendedScore",
+            score.toFixed(1)
+        );
+
+
+        text(
+            "metricHealth",
+            health === null
+                ? "N/A"
+                : Math.round(health) +
+                  "/100"
+        );
+
+
+        text(
+            "metricTime",
+            formatTime(time)
+        );
+
+
+        const coverage =
+            recommended.coverage ??
+            recommended.ai_coverage ??
+            data.overall_coverage ??
+            data.coverage;
+
+
+        text(
+            "metricCoverage",
+            coverage === undefined ||
+            coverage === null
+                ? "N/A"
+                : number(coverage).toFixed(1) +
+                  "%"
+        );
+
+
+        const segments =
+            recommended.total_segments ??
+            (
+                number(
+                    recommended.ai_segment_count
+                ) +
+                number(
+                    recommended.osm_segment_count
+                )
+            );
+
+
+        text(
+            "metricSegments",
+            segments || "N/A"
+        );
+
+
+        const reason =
+            recommended.recommendation_reason ||
+            data.recommendation_reason ||
+            "Selected as the best route based on your selected route preference.";
+
+
+        text(
+            "recommendationReason",
+            reason
+        );
+
+
+        const explanation =
+            recommended.recommendation_reason ||
+            data.recommendation_reason ||
+            (
+                "RoadQuality evaluated road condition, " +
+                "distance, travel time and route score " +
+                "to select the most suitable route."
+            );
+
+
+        text(
+            "aiExplanation",
+            explanation
+        );
+
+    }
+
+
+    function createRouteCard(route, index, recommended) {
+
+        const card =
+            document.createElement(
+                "div"
+            );
+
+
+        card.className =
+            "rq-route-card";
+
+
+        const isRecommended =
+            recommended &&
+            route.name ===
+            recommended.name;
+
+
+        if (isRecommended) {
+            card.classList.add(
+                "selected"
+            );
+        }
+
+
+        let color =
+            index === 0
+                ? "green"
+                : index === 1
+                    ? "blue"
+                    : "orange";
+
+
+        const health =
+            healthValue(route);
+
+
+        const condition =
+            routeCondition(route);
+
+
+        const distance =
+            routeDistance(route);
+
+
+        const time =
+            routeTime(route);
+
+
+        const score =
+            routeScore(route);
+
+
+        const healthText =
+            health === null
+                ? "N/A"
+                : Math.round(health) +
+                  "/100";
+
+
+        card.innerHTML = `
+
+            <div class="rq-route-card-top">
+
+                <div class="rq-route-card-name">
+
+                    <span class="rq-color ${color}">
+                    </span>
+
+                    <div>
+
+                        <small>
+                            ${
+                                isRecommended
+                                    ? "RECOMMENDED"
+                                    : "ALTERNATIVE " +
+                                      index
+                            }
+                        </small>
+
+                        <strong>
+                            ${route.name || "Route " + (index + 1)}
+                        </strong>
+
+                    </div>
+
+                </div>
+
+                ${
+                    isRecommended
+                        ? `
+                            <span class="rq-card-badge">
+                                BEST
+                            </span>
+                          `
+                        : ""
+                }
+
+            </div>
+
+
+            <div class="rq-route-card-condition">
+
+                <span class="rq-health-dot ${healthClass(health)}">
+                </span>
+
+                <strong>
+                    ${condition}
+                </strong>
+
+                <span>
+                    ${healthText}
+                </span>
+
+            </div>
+
+
+            <div class="rq-route-card-stats">
+
+                <div>
+
+                    <small>
+                        DISTANCE
+                    </small>
+
+                    <strong>
+                        ${distance.toFixed(2)} km
+                    </strong>
+
+                </div>
+
+
+                <div>
+
+                    <small>
+                        TIME
+                    </small>
+
+                    <strong>
+                        ${formatTime(time)}
+                    </strong>
+
+                </div>
+
+
+                <div>
+
+                    <small>
+                        SCORE
+                    </small>
+
+                    <strong>
+                        ${score.toFixed(1)}
+                    </strong>
+
+                </div>
+
+            </div>
+
+        `;
+
+
+        card.addEventListener(
+            "click",
+            function () {
+
+                localStorage.setItem(
+                    "roadqualitySelectedRoute",
+                    JSON.stringify(route)
+                );
+
+
+                document
+                    .querySelectorAll(
+                        ".rq-route-card"
+                    )
+                    .forEach(function (item) {
+
+                        item.classList.remove(
+                            "selected"
+                        );
+
+                    });
+
+
+                card.classList.add(
+                    "selected"
+                );
+
+            }
+        );
+
+
+        return card;
+
+    }
+
+
+    function renderRoutes(data) {
+
+        const routes =
+            getRoutes(data);
+
+
+        const recommended =
+            getRecommended(
+                data,
+                routes
+            );
+
+
+        const container =
+            byId(
+                "routeComparison"
+            );
+
+
+        const empty =
+            byId(
+                "routeEmpty"
+            );
+
+
+        if (!container) {
+            return;
+        }
+
+
+        container.innerHTML =
+            "";
+
+
+        text(
+            "routeCount",
+            routes.length +
+            (
+                routes.length === 1
+                    ? " route"
+                    : " routes"
+            )
+        );
+
+
+        if (!routes.length) {
+
+            if (empty) {
+                empty.style.display =
+                    "block";
+            }
+
+            return;
+
+        }
+
+
+        if (empty) {
+            empty.style.display =
+                "none";
+        }
+
+
+        routes.forEach(
+            function (route, index) {
+
+                const card =
+                    createRouteCard(
+                        route,
+                        index,
+                        recommended
+                    );
+
+
+                container.appendChild(
+                    card
+                );
+
+            }
+        );
+
+
+        if (recommended) {
+
+            localStorage.setItem(
+                "roadqualitySelectedRoute",
+                JSON.stringify(
+                    recommended
+                )
+            );
+
+        }
+
+    }
+
+
+    function loadRouteData() {
+
+        const data =
+            getStoredAnalysis();
+
+
+        if (!data) {
+
+            console.warn(
+                "No roadqualityAnalysis found."
+            );
+
+            return;
+
+        }
+
+
+        console.log(
+            "RoadQuality analysis:",
+            data
+        );
+
+
+        renderJourney(
+            data
+        );
+
+
+        const routes =
+            getRoutes(data);
+
+
+        const recommended =
+            getRecommended(
+                data,
+                routes
+            );
+
+
+        renderRecommended(
+            data,
+            recommended
+        );
+
+
+        renderRoutes(
+            data
+        );
+
+    }
+
+
+    function setupNavigationButton() {
+
+        const button =
+            byId(
+                "startNavigationBtn"
+            );
+
+
+        if (!button) {
+            return;
+        }
+
+
+        button.addEventListener(
+            "click",
+            function () {
+
+                const data =
+                    getStoredAnalysis();
+
+
+                if (!data) {
+
+                    alert(
+                        "Route data is not available."
+                    );
+
+                    return;
+
+                }
+
+
+                const routes =
+                    getRoutes(data);
+
+
+                const recommended =
+                    getRecommended(
+                        data,
+                        routes
+                    );
+
+
+                if (!recommended) {
+
+                    alert(
+                        "Recommended route is not available."
+                    );
+
+                    return;
+
+                }
+
+
+                localStorage.setItem(
+                    "roadqualitySelectedRoute",
+                    JSON.stringify(
+                        recommended
+                    )
+                );
+
+
+                window.location.href =
+                    "navigation.html";
+
+            }
+        );
+
+    }
+
+
+    window.addEventListener(
+        "DOMContentLoaded",
+        function () {
+
+            loadRouteData();
+
+            setupNavigationButton();
+
+
+            /*
+             * app.js may finish processing after
+             * DOMContentLoaded. Re-render a few times
+             * so the UI always reflects the latest
+             * localStorage result.
+             */
+
+            setTimeout(
+                loadRouteData,
+                500
+            );
+
+            setTimeout(
+                loadRouteData,
+                1200
+            );
+
+            setTimeout(
+                loadRouteData,
+                2000
+            );
+
+        }
+    );
+
+})();
+
+</script>
+
+
+</body>
+</html>

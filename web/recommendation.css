@@ -1,0 +1,1666 @@
+/* =========================================================
+   ROADQUALITY RECOMMENDATION PAGE
+   THIS FILE ONLY AFFECTS recommendation.html
+   ========================================================= */
+
+.recommendation-page {
+
+    --rq-green: #16b866;
+    --rq-green-dark: #07934e;
+
+    --rq-blue: #287cf4;
+    --rq-orange: #f59a23;
+
+    --rq-text: #17283b;
+    --rq-muted: #718197;
+    --rq-border: #e2e8ef;
+
+    --rq-bg: #f5f7fa;
+
+    background: var(--rq-bg);
+
+    color: var(--rq-text);
+
+    font-family:
+        Inter,
+        "Segoe UI",
+        Arial,
+        sans-serif;
+}
+
+
+/* =========================================================
+   HEADER
+   ========================================================= */
+
+.recommendation-page .rq-header {
+
+    height: 70px;
+
+    display: flex;
+    align-items: center;
+
+    padding: 0 4vw;
+
+    background: rgba(255,255,255,.96);
+
+    border-bottom:
+        1px solid var(--rq-border);
+
+    position: sticky;
+
+    top: 0;
+
+    z-index: 5000;
+
+    backdrop-filter:
+        blur(15px);
+}
+
+
+.recommendation-page .rq-logo {
+
+    display: flex;
+    align-items: center;
+
+    gap: 10px;
+
+    text-decoration: none;
+}
+
+
+.recommendation-page .rq-logo-mark {
+
+    width: 38px;
+    height: 38px;
+
+    display: grid;
+    place-items: center;
+
+    border-radius: 11px;
+
+    background:
+        linear-gradient(
+            135deg,
+            #18b968,
+            #287cf4
+        );
+
+    color: white;
+
+    font-size: 11px;
+    font-weight: 900;
+}
+
+
+.recommendation-page .rq-logo-text {
+
+    color: #17283b;
+
+    font-size: 19px;
+    font-weight: 850;
+
+    letter-spacing: -.5px;
+}
+
+
+.recommendation-page .rq-logo-text span {
+    color: var(--rq-green);
+}
+
+
+.recommendation-page .rq-nav {
+
+    display: flex;
+
+    gap: 4px;
+
+    margin: auto;
+}
+
+
+.recommendation-page .rq-nav a {
+
+    padding: 9px 14px;
+
+    border-radius: 9px;
+
+    color: #708097;
+
+    font-size: 13px;
+    font-weight: 700;
+
+    text-decoration: none;
+
+    transition: .2s ease;
+}
+
+
+.recommendation-page .rq-nav a:hover {
+
+    background: #f1f5f9;
+
+    color: var(--rq-text);
+}
+
+
+.recommendation-page .rq-nav a.active {
+
+    background: #edf4ff;
+
+    color: var(--rq-blue);
+}
+
+
+.recommendation-page .rq-new-route {
+
+    border:
+        1px solid #d9e2ec;
+
+    background: white;
+
+    color: var(--rq-blue);
+
+    border-radius: 9px;
+
+    padding: 9px 15px;
+
+    font-size: 12px;
+    font-weight: 800;
+}
+
+
+/* =========================================================
+   PAGE
+   ========================================================= */
+
+.recommendation-page .rq-page {
+
+    width:
+        min(1500px, calc(100% - 40px));
+
+    margin: auto;
+
+    padding:
+        30px 0 50px;
+}
+
+
+/* =========================================================
+   HEADING
+   ========================================================= */
+
+.recommendation-page .rq-heading {
+
+    display: grid;
+
+    grid-template-columns:
+        1fr 1.2fr;
+
+    gap: 30px;
+
+    align-items: center;
+
+    margin-bottom: 18px;
+}
+
+
+.recommendation-page .rq-overline {
+
+    display: flex;
+    align-items: center;
+
+    gap: 7px;
+
+    color: var(--rq-green-dark);
+
+    font-size: 9px;
+    font-weight: 900;
+
+    letter-spacing: 1px;
+}
+
+
+.recommendation-page .rq-overline span {
+
+    width: 7px;
+    height: 7px;
+
+    border-radius: 50%;
+
+    background: var(--rq-green);
+}
+
+
+.recommendation-page .rq-heading h1 {
+
+    margin-top: 8px;
+
+    font-size:
+        clamp(30px, 3.2vw, 44px);
+
+    line-height: 1;
+
+    letter-spacing: -1.8px;
+}
+
+
+.recommendation-page .rq-heading p {
+
+    margin-top: 8px;
+
+    color: var(--rq-muted);
+
+    font-size: 13px;
+}
+
+
+/* =========================================================
+   JOURNEY SUMMARY
+   ========================================================= */
+
+.recommendation-page .rq-route-summary {
+
+    min-height: 82px;
+
+    display: grid;
+
+    grid-template-columns:
+        1fr 45px 1fr;
+
+    align-items: center;
+
+    gap: 10px;
+
+    padding: 13px 17px;
+
+    background: white;
+
+    border:
+        1px solid var(--rq-border);
+
+    border-radius: 16px;
+
+    box-shadow:
+        0 8px 25px
+        rgba(25,50,80,.05);
+}
+
+
+.recommendation-page .rq-place {
+
+    display: flex;
+    align-items: center;
+
+    gap: 10px;
+
+    min-width: 0;
+}
+
+
+.recommendation-page .rq-place small {
+
+    display: block;
+
+    color: #9aa7b6;
+
+    font-size: 8px;
+    font-weight: 900;
+
+    letter-spacing: .8px;
+}
+
+
+.recommendation-page .rq-place strong {
+
+    display: block;
+
+    margin-top: 2px;
+
+    overflow: hidden;
+
+    white-space: nowrap;
+
+    text-overflow: ellipsis;
+
+    font-size: 12px;
+}
+
+
+.recommendation-page .rq-marker {
+
+    width: 33px;
+    height: 33px;
+
+    flex-shrink: 0;
+
+    display: grid;
+    place-items: center;
+
+    border-radius: 50%;
+
+    font-size: 10px;
+    font-weight: 900;
+}
+
+
+.recommendation-page .rq-marker.from {
+
+    background: #eaf9f1;
+
+    color: var(--rq-green-dark);
+}
+
+
+.recommendation-page .rq-marker.to {
+
+    background: #edf4ff;
+
+    color: var(--rq-blue);
+}
+
+
+.recommendation-page .rq-arrow {
+
+    text-align: center;
+
+    color: #a4b0bf;
+
+    font-size: 20px;
+}
+
+
+/* =========================================================
+   MAIN GRID
+   ========================================================= */
+
+.recommendation-page .rq-main-grid {
+
+    display: grid;
+
+    grid-template-columns:
+        minmax(0, 1fr)
+        400px;
+
+    gap: 17px;
+}
+
+
+/* =========================================================
+   MAP
+   ========================================================= */
+
+.recommendation-page .rq-map-card {
+
+    position: relative;
+
+    height: 590px;
+
+    overflow: hidden;
+
+    border-radius: 18px;
+
+    background: #dce6eb;
+
+    border:
+        1px solid var(--rq-border);
+
+    box-shadow:
+        0 18px 50px
+        rgba(20,42,70,.11);
+}
+
+
+.recommendation-page #recommendationMap {
+
+    width: 100%;
+    height: 100%;
+
+    min-height: 590px;
+}
+
+
+.recommendation-page .leaflet-container {
+
+    font-family: inherit;
+}
+
+
+/* =========================================================
+   MAP TITLE
+   ========================================================= */
+
+.recommendation-page .rq-map-title {
+
+    position: absolute;
+
+    top: 15px;
+    left: 15px;
+
+    z-index: 1000;
+
+    display: flex;
+    align-items: center;
+
+    gap: 9px;
+
+    padding: 9px 12px;
+
+    border-radius: 11px;
+
+    background:
+        rgba(255,255,255,.95);
+
+    border:
+        1px solid #dfe6ed;
+
+    box-shadow:
+        0 8px 22px
+        rgba(20,42,70,.12);
+}
+
+
+.recommendation-page .rq-map-title-icon {
+
+    width: 30px;
+    height: 30px;
+
+    display: grid;
+    place-items: center;
+
+    border-radius: 8px;
+
+    background: #edf4ff;
+
+    color: var(--rq-blue);
+}
+
+
+.recommendation-page .rq-map-title strong {
+
+    display: block;
+
+    font-size: 11px;
+}
+
+
+.recommendation-page .rq-map-title span {
+
+    display: block;
+
+    margin-top: 1px;
+
+    color: var(--rq-muted);
+
+    font-size: 8px;
+}
+
+
+/* =========================================================
+   LEGEND
+   ========================================================= */
+
+.recommendation-page .rq-legend {
+
+    position: absolute;
+
+    top: 15px;
+    right: 15px;
+
+    z-index: 1000;
+
+    width: 190px;
+
+    padding: 12px;
+
+    background:
+        rgba(255,255,255,.96);
+
+    border:
+        1px solid #dfe6ed;
+
+    border-radius: 12px;
+
+    box-shadow:
+        0 8px 22px
+        rgba(20,42,70,.12);
+}
+
+
+.recommendation-page .rq-legend-title {
+
+    padding-bottom: 7px;
+
+    margin-bottom: 4px;
+
+    border-bottom:
+        1px solid #edf0f4;
+
+    color: #78889b;
+
+    font-size: 8px;
+    font-weight: 900;
+
+    letter-spacing: .8px;
+}
+
+
+.recommendation-page .rq-legend-row {
+
+    display: flex;
+    align-items: center;
+
+    gap: 8px;
+
+    padding: 6px 0;
+}
+
+
+.recommendation-page .rq-legend-row strong {
+
+    display: block;
+
+    font-size: 9px;
+}
+
+
+.recommendation-page .rq-legend-row small {
+
+    display: block;
+
+    margin-top: 1px;
+
+    color: #8a98a9;
+
+    font-size: 7px;
+}
+
+
+.recommendation-page .rq-color {
+
+    width: 30px;
+    height: 5px;
+
+    flex-shrink: 0;
+
+    border-radius: 20px;
+
+    display: inline-block;
+}
+
+
+.recommendation-page .rq-color.green {
+    background: #16b866;
+}
+
+
+.recommendation-page .rq-color.blue {
+    background: #287cf4;
+}
+
+
+.recommendation-page .rq-color.orange {
+    background: #f59a23;
+}
+
+
+/* =========================================================
+   ROUTE PANEL
+   ========================================================= */
+
+.recommendation-page .rq-route-panel {
+
+    height: 590px;
+
+    padding: 17px;
+
+    overflow: hidden;
+
+    background: white;
+
+    border:
+        1px solid var(--rq-border);
+
+    border-radius: 18px;
+
+    box-shadow:
+        0 10px 30px
+        rgba(20,42,70,.07);
+}
+
+
+.recommendation-page .rq-panel-header {
+
+    display: flex;
+    align-items: flex-end;
+
+    justify-content: space-between;
+
+    margin-bottom: 12px;
+}
+
+
+.recommendation-page .rq-panel-header span {
+
+    color: #7c8c9f;
+
+    font-size: 8px;
+    font-weight: 900;
+
+    letter-spacing: .9px;
+}
+
+
+.recommendation-page .rq-panel-header h2 {
+
+    margin-top: 3px;
+
+    font-size: 20px;
+
+    letter-spacing: -.5px;
+}
+
+
+.recommendation-page .rq-route-count {
+
+    padding: 5px 9px;
+
+    background: #f1f5f9;
+
+    border-radius: 20px;
+
+    color: #708097 !important;
+
+    font-size: 8px !important;
+}
+
+
+/* =========================================================
+   BEST ROUTE
+   ========================================================= */
+
+.recommendation-page .rq-best-route {
+
+    padding: 15px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #f2fff7,
+            white
+        );
+
+    border:
+        1px solid #bce8ce;
+
+    border-radius: 14px;
+}
+
+
+.recommendation-page .rq-best-header {
+
+    display: flex;
+    align-items: flex-start;
+
+    justify-content: space-between;
+
+    gap: 8px;
+}
+
+
+.recommendation-page .rq-best-name {
+
+    display: flex;
+    align-items: center;
+
+    gap: 8px;
+
+    min-width: 0;
+}
+
+
+.recommendation-page .rq-best-name > div {
+
+    min-width: 0;
+}
+
+
+.recommendation-page .rq-best-name small {
+
+    display: block;
+
+    color: var(--rq-green-dark);
+
+    font-size: 7px;
+    font-weight: 900;
+
+    letter-spacing: .7px;
+}
+
+
+.recommendation-page .rq-best-name h3 {
+
+    margin-top: 2px;
+
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+
+    white-space: nowrap;
+
+    font-size: 16px;
+}
+
+
+.recommendation-page .rq-best-badge {
+
+    padding: 5px 7px;
+
+    flex-shrink: 0;
+
+    background: var(--rq-green);
+
+    color: white;
+
+    border-radius: 20px;
+
+    font-size: 6px;
+    font-weight: 900;
+}
+
+
+.recommendation-page .rq-best-route > p {
+
+    margin: 9px 0 12px;
+
+    color: #718197;
+
+    font-size: 9px;
+
+    line-height: 1.5;
+}
+
+
+/* =========================================================
+   HEALTH
+   ========================================================= */
+
+.recommendation-page .rq-health-row {
+
+    display: flex;
+    align-items: center;
+
+    gap: 10px;
+
+    padding: 9px;
+
+    border-radius: 10px;
+
+    background: white;
+
+    border:
+        1px solid #e0eee5;
+}
+
+
+.recommendation-page .rq-health-circle {
+
+    width: 48px;
+    height: 48px;
+
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+
+    padding-top: 11px;
+
+    border-radius: 50%;
+
+    background: #e8f9ef;
+
+    border:
+        4px solid #b7e7c9;
+
+    color: var(--rq-green-dark);
+}
+
+
+.recommendation-page .rq-health-circle strong {
+
+    font-size: 16px;
+}
+
+
+.recommendation-page .rq-health-circle small {
+
+    font-size: 7px;
+}
+
+
+.recommendation-page .rq-health-row > div:last-child small {
+
+    display: block;
+
+    color: #8a99a9;
+
+    font-size: 7px;
+    font-weight: 900;
+
+    letter-spacing: .5px;
+}
+
+
+.recommendation-page .rq-health-row > div:last-child strong {
+
+    display: block;
+
+    margin-top: 2px;
+
+    font-size: 10px;
+}
+
+
+/* =========================================================
+   BEST STATS
+   ========================================================= */
+
+.recommendation-page .rq-best-stats {
+
+    display: grid;
+
+    grid-template-columns:
+        repeat(3,1fr);
+
+    gap: 6px;
+
+    margin-top: 8px;
+}
+
+
+.recommendation-page .rq-best-stats > div {
+
+    padding: 8px;
+
+    border:
+        1px solid #e1ece5;
+
+    border-radius: 8px;
+
+    background: rgba(255,255,255,.8);
+}
+
+
+.recommendation-page .rq-best-stats small {
+
+    display: block;
+
+    color: #94a1af;
+
+    font-size: 6px;
+    font-weight: 900;
+}
+
+
+.recommendation-page .rq-best-stats strong {
+
+    display: block;
+
+    margin-top: 3px;
+
+    font-size: 10px;
+}
+
+
+/* =========================================================
+   NAVIGATION BUTTON
+   ========================================================= */
+
+.recommendation-page .rq-navigation-btn {
+
+    width: 100%;
+
+    height: 43px;
+
+    margin-top: 9px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    gap: 8px;
+
+    border: none;
+
+    border-radius: 9px;
+
+    background:
+        linear-gradient(
+            135deg,
+            #287cf4,
+            #1765d5
+        );
+
+    color: white;
+
+    font-size: 11px;
+    font-weight: 850;
+
+    box-shadow:
+        0 8px 20px
+        rgba(40,124,244,.22);
+}
+
+
+/* =========================================================
+   OTHER ROUTES
+   ========================================================= */
+
+.recommendation-page .rq-section-title {
+
+    display: flex;
+    align-items: center;
+
+    gap: 8px;
+
+    margin:
+        13px 0 7px;
+}
+
+
+.recommendation-page .rq-section-title span {
+
+    color: #9aa6b4;
+
+    font-size: 7px;
+    font-weight: 900;
+
+    letter-spacing: .9px;
+}
+
+
+.recommendation-page .rq-section-title div {
+
+    flex: 1;
+
+    height: 1px;
+
+    background: var(--rq-border);
+}
+
+
+.recommendation-page .route-comparison-grid {
+
+    height: 245px;
+
+    overflow-y: auto;
+
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 7px;
+
+    padding-right: 3px;
+}
+
+
+.recommendation-page .route-comparison-grid::-webkit-scrollbar {
+
+    width: 4px;
+}
+
+
+.recommendation-page .route-comparison-grid::-webkit-scrollbar-thumb {
+
+    background: #d6dee8;
+
+    border-radius: 20px;
+}
+
+
+/* =========================================================
+   ROUTE CARD
+   ========================================================= */
+
+.recommendation-page .rq-route-card {
+
+    padding: 11px;
+
+    border:
+        1px solid var(--rq-border);
+
+    border-radius: 11px;
+
+    background: #fbfcfe;
+
+    cursor: pointer;
+
+    transition:
+        transform .18s ease,
+        border-color .18s ease,
+        box-shadow .18s ease;
+}
+
+
+.recommendation-page .rq-route-card:hover {
+
+    transform:
+        translateY(-1px);
+
+    border-color:
+        #c9d7e5;
+
+    background: white;
+
+    box-shadow:
+        0 7px 18px
+        rgba(20,42,70,.07);
+}
+
+
+.recommendation-page .rq-route-card.selected {
+
+    border-color:
+        #a9dfbd;
+
+    background:
+        #f4fcf7;
+
+    box-shadow:
+        0 5px 15px
+        rgba(22,184,102,.08);
+}
+
+
+.recommendation-page .rq-route-card-top {
+
+    display: flex;
+    align-items: center;
+
+    justify-content: space-between;
+
+    gap: 8px;
+}
+
+
+.recommendation-page .rq-route-card-name {
+
+    display: flex;
+    align-items: center;
+
+    gap: 8px;
+
+    min-width: 0;
+}
+
+
+.recommendation-page .rq-route-card-name > div {
+
+    min-width: 0;
+}
+
+
+.recommendation-page .rq-route-card-name small {
+
+    display: block;
+
+    color: #8c9aaa;
+
+    font-size: 6px;
+    font-weight: 900;
+
+    letter-spacing: .6px;
+}
+
+
+.recommendation-page .rq-route-card-name strong {
+
+    display: block;
+
+    margin-top: 1px;
+
+    font-size: 10px;
+}
+
+
+.recommendation-page .rq-card-badge {
+
+    padding: 3px 6px;
+
+    border-radius: 20px;
+
+    background: #e6f8ee;
+
+    color: var(--rq-green-dark);
+
+    font-size: 6px;
+    font-weight: 900;
+}
+
+
+.recommendation-page .rq-route-card-condition {
+
+    display: flex;
+    align-items: center;
+
+    gap: 5px;
+
+    margin-top: 8px;
+
+    color: #718197;
+
+    font-size: 8px;
+}
+
+
+.recommendation-page .rq-route-card-condition > span:last-child {
+
+    margin-left: auto;
+
+    font-weight: 800;
+}
+
+
+.recommendation-page .rq-health-dot {
+
+    width: 7px;
+    height: 7px;
+
+    border-radius: 50%;
+}
+
+
+.recommendation-page .rq-health-dot.good {
+    background: var(--rq-green);
+}
+
+
+.recommendation-page .rq-health-dot.moderate {
+    background: var(--rq-orange);
+}
+
+
+.recommendation-page .rq-health-dot.poor {
+    background: #e14e4e;
+}
+
+
+.recommendation-page .rq-health-dot.unknown {
+    background: #9ca8b5;
+}
+
+
+.recommendation-page .rq-route-card-stats {
+
+    display: grid;
+
+    grid-template-columns:
+        repeat(3,1fr);
+
+    gap: 6px;
+
+    margin-top: 8px;
+}
+
+
+.recommendation-page .rq-route-card-stats div {
+
+    padding: 6px;
+
+    border-radius: 7px;
+
+    background: white;
+
+    border:
+        1px solid #e8edf2;
+}
+
+
+.recommendation-page .rq-route-card-stats small {
+
+    display: block;
+
+    color: #a0abb7;
+
+    font-size: 5.5px;
+    font-weight: 900;
+}
+
+
+.recommendation-page .rq-route-card-stats strong {
+
+    display: block;
+
+    margin-top: 2px;
+
+    font-size: 8px;
+}
+
+
+/* =========================================================
+   EMPTY
+   ========================================================= */
+
+.recommendation-page .rq-empty {
+
+    padding: 25px 10px;
+
+    text-align: center;
+
+    color: #8a98a8;
+
+    font-size: 10px;
+}
+
+
+/* =========================================================
+   METRICS
+   ========================================================= */
+
+.recommendation-page .rq-metrics {
+
+    display: grid;
+
+    grid-template-columns:
+        repeat(4,1fr);
+
+    gap: 11px;
+
+    margin-top: 15px;
+}
+
+
+.recommendation-page .rq-metric {
+
+    min-height: 80px;
+
+    display: flex;
+    align-items: center;
+
+    gap: 10px;
+
+    padding: 12px;
+
+    background: white;
+
+    border:
+        1px solid var(--rq-border);
+
+    border-radius: 12px;
+}
+
+
+.recommendation-page .rq-metric-icon {
+
+    width: 36px;
+    height: 36px;
+
+    display: grid;
+    place-items: center;
+
+    border-radius: 9px;
+
+    font-size: 14px;
+}
+
+
+.recommendation-page .rq-metric-icon.green {
+
+    background: #e9f9f0;
+
+    color: var(--rq-green-dark);
+}
+
+
+.recommendation-page .rq-metric-icon.blue {
+
+    background: #edf4ff;
+
+    color: var(--rq-blue);
+}
+
+
+.recommendation-page .rq-metric-icon.purple {
+
+    background: #f0efff;
+
+    color: #7568df;
+}
+
+
+.recommendation-page .rq-metric-icon.orange {
+
+    background: #fff3df;
+
+    color: var(--rq-orange);
+}
+
+
+.recommendation-page .rq-metric small {
+
+    display: block;
+
+    color: #8d9aaa;
+
+    font-size: 6.5px;
+    font-weight: 900;
+
+    letter-spacing: .5px;
+}
+
+
+.recommendation-page .rq-metric strong {
+
+    display: block;
+
+    margin-top: 3px;
+
+    font-size: 16px;
+}
+
+
+.recommendation-page .rq-metric span {
+
+    display: block;
+
+    margin-top: 2px;
+
+    color: #a0aab6;
+
+    font-size: 7px;
+}
+
+
+/* =========================================================
+   AI
+   ========================================================= */
+
+.recommendation-page .rq-ai {
+
+    display: flex;
+    align-items: center;
+
+    gap: 13px;
+
+    margin-top: 13px;
+
+    padding: 15px 17px;
+
+    background:
+        linear-gradient(
+            100deg,
+            #eef6ff,
+            white
+        );
+
+    border:
+        1px solid #dce8f5;
+
+    border-radius: 13px;
+}
+
+
+.recommendation-page .rq-ai-icon {
+
+    width: 39px;
+    height: 39px;
+
+    flex-shrink: 0;
+
+    display: grid;
+    place-items: center;
+
+    border-radius: 10px;
+
+    background: #e7f0ff;
+
+    color: var(--rq-blue);
+
+    font-size: 17px;
+}
+
+
+.recommendation-page .rq-ai small {
+
+    color: #7288a2;
+
+    font-size: 6.5px;
+    font-weight: 900;
+
+    letter-spacing: .8px;
+}
+
+
+.recommendation-page .rq-ai h2 {
+
+    margin-top: 1px;
+
+    font-size: 14px;
+}
+
+
+.recommendation-page .rq-ai p {
+
+    margin-top: 3px;
+
+    color: #71839a;
+
+    font-size: 8.5px;
+
+    line-height: 1.5;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 1100px) {
+
+    .recommendation-page .rq-heading {
+
+        grid-template-columns: 1fr;
+
+        gap: 14px;
+    }
+
+
+    .recommendation-page .rq-main-grid {
+
+        grid-template-columns:
+            1fr 350px;
+    }
+
+}
+
+
+@media (max-width: 850px) {
+
+    .recommendation-page .rq-nav {
+
+        display: none;
+    }
+
+
+    .recommendation-page .rq-main-grid {
+
+        grid-template-columns: 1fr;
+    }
+
+
+    .recommendation-page .rq-map-card {
+
+        height: 500px;
+    }
+
+
+    .recommendation-page #recommendationMap {
+
+        min-height: 500px;
+    }
+
+
+    .recommendation-page .rq-route-panel {
+
+        height: auto;
+    }
+
+
+    .recommendation-page .route-comparison-grid {
+
+        height: auto;
+
+        display: grid;
+
+        grid-template-columns:
+            repeat(2,1fr);
+    }
+
+
+    .recommendation-page .rq-metrics {
+
+        grid-template-columns:
+            repeat(2,1fr);
+    }
+
+}
+
+
+@media (max-width: 600px) {
+
+    .recommendation-page .rq-header {
+
+        height: 62px;
+
+        padding: 0 12px;
+    }
+
+
+    .recommendation-page .rq-logo-text {
+
+        font-size: 16px;
+    }
+
+
+    .recommendation-page .rq-new-route {
+
+        padding:
+            8px 10px;
+
+        font-size: 9px;
+    }
+
+
+    .recommendation-page .rq-page {
+
+        width:
+            calc(100% - 18px);
+
+        padding-top: 18px;
+    }
+
+
+    .recommendation-page .rq-heading h1 {
+
+        font-size: 31px;
+    }
+
+
+    .recommendation-page .rq-route-summary {
+
+        grid-template-columns:
+            1fr;
+
+        gap: 9px;
+    }
+
+
+    .recommendation-page .rq-arrow {
+
+        display: none;
+    }
+
+
+    .recommendation-page .rq-map-card {
+
+        height: 430px;
+
+        border-radius: 14px;
+    }
+
+
+    .recommendation-page #recommendationMap {
+
+        min-height: 430px;
+    }
+
+
+    .recommendation-page .rq-legend {
+
+        top: auto;
+
+        right: 8px;
+        bottom: 8px;
+
+        width: 170px;
+    }
+
+
+    .recommendation-page .rq-map-title {
+
+        top: 8px;
+        left: 8px;
+    }
+
+
+    .recommendation-page .rq-route-panel {
+
+        padding: 13px;
+    }
+
+
+    .recommendation-page .route-comparison-grid {
+
+        grid-template-columns: 1fr;
+    }
+
+
+    .recommendation-page .rq-metrics {
+
+        grid-template-columns: 1fr 1fr;
+
+        gap: 7px;
+    }
+
+
+    .recommendation-page .rq-metric {
+
+        min-height: 70px;
+
+        padding: 9px;
+    }
+
+
+    .recommendation-page .rq-metric-icon {
+
+        width: 30px;
+        height: 30px;
+    }
+
+
+    .recommendation-page .rq-metric strong {
+
+        font-size: 14px;
+    }
+
+}
+
+
+@media (max-width: 390px) {
+
+    .recommendation-page .rq-metrics {
+
+        grid-template-columns: 1fr;
+    }
+
+}

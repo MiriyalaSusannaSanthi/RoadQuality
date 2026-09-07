@@ -1,0 +1,1268 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>RoadQuality | Navigation</title>
+
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <link rel="stylesheet"
+          href="style.css">
+
+    <style>
+
+        body {
+            overflow: hidden;
+        }
+
+      .navigation-page {
+    width: 100%;
+    height: calc(100vh - 72px);
+    min-height: 600px;
+    padding: 0;
+    margin: 0;
+    max-width: none;
+    position: relative;
+    overflow: hidden;
+}
+
+#navigationMap {
+    width: 100%;
+    height: calc(100vh - 72px);
+    min-height: 600px;
+}
+        /* TOP NAVIGATION INSTRUCTION */
+
+        .turn-card {
+            position: absolute;
+            z-index: 1000;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(520px, calc(100% - 30px));
+
+            padding: 18px 22px;
+
+            border-radius: 18px;
+
+            background: rgba(7,17,13,.94);
+            border: 1px solid rgba(255,255,255,.1);
+
+            box-shadow: 0 15px 45px rgba(0,0,0,.4);
+
+            backdrop-filter: blur(15px);
+        }
+
+        .turn-small {
+            color: #91a39a;
+            font-size: 11px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .turn-main {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .turn-arrow {
+            width: 48px;
+            height: 48px;
+
+            display: grid;
+            place-items: center;
+
+            border-radius: 13px;
+
+            background: rgba(57,217,138,.12);
+            color: #39d98a;
+
+            font-size: 27px;
+            font-weight: 900;
+        }
+
+        #instruction {
+            font-size: 18px;
+            font-weight: 800;
+        }
+
+        #instructionDistance {
+            color: #39d98a;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+
+        /* BOTTOM NAVIGATION PANEL */
+
+        .navigation-bottom {
+            position: absolute;
+            z-index: 1000;
+
+            left: 50%;
+            bottom: 18px;
+            transform: translateX(-50%);
+
+            width: min(720px, calc(100% - 30px));
+
+            padding: 18px;
+
+            border-radius: 20px;
+
+            background: rgba(7,17,13,.95);
+            border: 1px solid rgba(255,255,255,.1);
+
+            box-shadow: 0 15px 45px rgba(0,0,0,.45);
+
+            backdrop-filter: blur(18px);
+        }
+
+        .navigation-route-name {
+            font-size: 15px;
+            font-weight: 800;
+            margin-bottom: 13px;
+        }
+
+        .navigation-stats {
+            display: grid;
+            grid-template-columns: repeat(3,1fr);
+            gap: 9px;
+        }
+
+        .navigation-stat {
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(255,255,255,.04);
+            border: 1px solid rgba(255,255,255,.06);
+        }
+
+        .navigation-stat span {
+            display: block;
+            color: #91a39a;
+            font-size: 9px;
+            margin-bottom: 3px;
+        }
+
+        .navigation-stat strong {
+            font-size: 16px;
+        }
+
+        .gps-status {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+
+            margin-top: 12px;
+
+            color: #39d98a;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .gps-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #39d98a;
+            box-shadow: 0 0 10px #39d98a;
+        }
+
+        .exit-navigation {
+            position: absolute;
+            z-index: 1001;
+
+            top: 20px;
+            left: 20px;
+
+            padding: 10px 14px;
+
+            border-radius: 11px;
+
+            border: 1px solid rgba(255,255,255,.1);
+
+            background: rgba(7,17,13,.9);
+
+            color: white;
+
+            cursor: pointer;
+
+            font-weight: 700;
+        }
+
+        .exit-navigation:hover {
+            background: rgba(255,255,255,.1);
+        }
+
+        @media(max-width:650px) {
+
+            .turn-card {
+                top: 10px;
+            }
+
+            .turn-arrow {
+                width: 42px;
+                height: 42px;
+                font-size: 23px;
+            }
+
+            #instruction {
+                font-size: 15px;
+            }
+
+            .navigation-bottom {
+                bottom: 10px;
+            }
+
+            .navigation-stats {
+                grid-template-columns: repeat(3,1fr);
+            }
+
+            .navigation-stat {
+                padding: 9px;
+            }
+
+            .navigation-stat strong {
+                font-size: 13px;
+            }
+
+            .exit-navigation {
+                top: 10px;
+                left: 10px;
+            }
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+<header class="topbar">
+
+    <div class="logo">
+        <span>◉</span>
+        RoadQuality
+    </div>
+
+    <nav>
+
+        <a href="index.html">
+            Route Planner
+        </a>
+
+        <a href="navigation.html"
+           class="active">
+            Navigation
+        </a>
+
+    </nav>
+
+</header>
+
+
+<main class="navigation-page">
+
+    <div id="navigationMap"></div>
+
+
+    <button class="exit-navigation"
+            onclick="window.location.href='recommendation.html'">
+        ← Exit
+    </button>
+
+
+    <!-- TURN INSTRUCTION -->
+
+    <div class="turn-card">
+
+        <div class="turn-small">
+            NEXT INSTRUCTION
+        </div>
+
+        <div class="turn-main">
+
+            <div class="turn-arrow"
+                 id="turnArrow">
+                ↑
+            </div>
+
+            <div>
+
+                <div id="instruction">
+                    Calculating route...
+                </div>
+
+                <div id="instructionDistance">
+                    Please wait
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- BOTTOM PANEL -->
+
+    <div class="navigation-bottom">
+
+        <div class="navigation-route-name"
+             id="navigationRouteName">
+            RoadQuality Route
+        </div>
+
+
+        <div class="navigation-stats">
+
+            <div class="navigation-stat">
+
+                <span>
+                    REMAINING
+                </span>
+
+                <strong id="navigationDistance">
+                    --
+                </strong>
+
+            </div>
+
+
+            <div class="navigation-stat">
+
+                <span>
+                    ETA
+                </span>
+
+                <strong id="navigationTime">
+                    --
+                </strong>
+
+            </div>
+
+
+            <div class="navigation-stat">
+
+                <span>
+                    ROAD HEALTH
+                </span>
+
+                <strong id="navigationHealth">
+                    --
+                </strong>
+
+            </div>
+
+        </div>
+
+
+        <div class="gps-status">
+
+            <span class="gps-dot"></span>
+
+            <span id="gpsStatus">
+                Waiting for GPS...
+            </span>
+
+        </div>
+
+    </div>
+
+</main>
+
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+
+<script>
+
+let map = null;
+let userMarker = null;
+let destinationMarker = null;
+let routeLine = null;
+let navigationLine = null;
+let watchId = null;
+
+let routeCoordinates = [];
+let destination = null;
+let currentRoute = null;
+
+
+/* =========================================================
+   COORDINATE NORMALIZATION
+   ========================================================= */
+
+function normalizeCoordinate(point) {
+
+    if (Array.isArray(point)) {
+
+        return [
+            Number(point[0]),
+            Number(point[1])
+        ];
+
+    }
+
+    if (point && typeof point === "object") {
+
+        return [
+            Number(point.lat ?? point.latitude),
+            Number(point.lng ?? point.lon ?? point.longitude)
+        ];
+
+    }
+
+    return null;
+}
+
+
+/* =========================================================
+   DISTANCE
+   ========================================================= */
+
+function distanceKm(lat1, lon1, lat2, lon2) {
+
+    const R = 6371;
+
+    const dLat =
+        (lat2 - lat1) * Math.PI / 180;
+
+    const dLon =
+        (lon2 - lon1) * Math.PI / 180;
+
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * Math.PI / 180) *
+        Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) ** 2;
+
+    return R *
+        2 *
+        Math.atan2(
+            Math.sqrt(a),
+            Math.sqrt(1 - a)
+        );
+}
+
+
+/* =========================================================
+   TOTAL ROUTE DISTANCE
+   ========================================================= */
+
+function calculateRouteDistance(coords) {
+
+    let total = 0;
+
+    for (let i = 1; i < coords.length; i++) {
+
+        total += distanceKm(
+            coords[i - 1][0],
+            coords[i - 1][1],
+            coords[i][0],
+            coords[i][1]
+        );
+
+    }
+
+    return total;
+}
+
+
+/* =========================================================
+   LOAD ROADQUALITY ANALYSIS
+   ========================================================= */
+
+function loadRouteData() {
+
+    const analysis =
+        JSON.parse(
+            localStorage.getItem(
+                "roadqualityAnalysis"
+            ) || "null"
+        );
+
+    const selected =
+        JSON.parse(
+            localStorage.getItem(
+                "roadqualitySelectedRoute"
+            ) || "null"
+        );
+
+
+    if (!analysis) {
+
+        alert(
+            "No RoadQuality route found. Please analyze a route first."
+        );
+
+        window.location.href =
+            "index.html";
+
+        return false;
+    }
+
+
+    console.log(
+        "RoadQuality analysis:",
+        analysis
+    );
+
+    console.log(
+        "Selected route:",
+        selected
+    );
+
+
+    currentRoute =
+        selected || analysis;
+
+
+    /* -----------------------------------------------------
+       GET ROUTE COORDINATES
+       ----------------------------------------------------- */
+
+    routeCoordinates =
+        currentRoute.coordinates ||
+        currentRoute.route_coordinates ||
+        currentRoute.geometry ||
+        [];
+
+
+    routeCoordinates =
+        routeCoordinates
+            .map(normalizeCoordinate)
+            .filter(
+                p =>
+                    p &&
+                    Number.isFinite(p[0]) &&
+                    Number.isFinite(p[1])
+            );
+
+
+    console.log(
+        "Navigation coordinates:",
+        routeCoordinates
+    );
+
+
+    /* -----------------------------------------------------
+       DESTINATION
+       ----------------------------------------------------- */
+
+    if (analysis.destination) {
+
+        destination = [
+
+            Number(
+                analysis.destination.latitude
+            ),
+
+            Number(
+                analysis.destination.longitude
+            )
+
+        ];
+
+    }
+    else if (routeCoordinates.length > 0) {
+
+        destination =
+            routeCoordinates[
+                routeCoordinates.length - 1
+            ];
+
+    }
+
+
+    console.log(
+        "Navigation destination:",
+        destination
+    );
+
+
+    /* -----------------------------------------------------
+       ROUTE NAME
+       ----------------------------------------------------- */
+
+    document.getElementById(
+        "navigationRouteName"
+    ).textContent =
+        currentRoute.name ||
+        analysis.recommended_route ||
+        "RoadQuality Recommended Route";
+
+
+    /* -----------------------------------------------------
+       ROAD HEALTH
+       ----------------------------------------------------- */
+
+    const health =
+        currentRoute.road_health ??
+        analysis.road_health;
+
+
+    if (
+        health !== undefined &&
+        health !== null
+    ) {
+
+        document.getElementById(
+            "navigationHealth"
+        ).textContent =
+            Number(health).toFixed(0) + "%";
+
+    }
+
+
+    /* -----------------------------------------------------
+       INITIAL DISTANCE
+       ----------------------------------------------------- */
+
+    if (routeCoordinates.length > 1) {
+
+        const total =
+            calculateRouteDistance(
+                routeCoordinates
+            );
+
+
+        document.getElementById(
+            "navigationDistance"
+        ).textContent =
+            total.toFixed(1) + " km";
+
+
+        /* Estimate based on 35 km/h */
+
+        const minutes =
+            Math.max(
+                1,
+                Math.round(
+                    total / 35 * 60
+                )
+            );
+
+
+        document.getElementById(
+            "navigationTime"
+        ).textContent =
+            minutes + " min";
+
+    }
+
+
+    return true;
+}
+
+
+/* =========================================================
+   INITIALIZE MAP
+   ========================================================= */
+
+function initializeMap() {
+
+    map =
+        L.map(
+            "navigationMap",
+            {
+                zoomControl: false,
+                worldCopyJump: false
+            }
+        );
+
+
+    L.control.zoom({
+        position: "bottomright"
+    }).addTo(map);
+
+
+    L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+            maxZoom: 19,
+            attribution:
+                "&copy; OpenStreetMap contributors"
+        }
+    ).addTo(map);
+
+
+    /* -----------------------------------------------------
+       DRAW ROADQUALITY ROUTE
+       ----------------------------------------------------- */
+
+    if (routeCoordinates.length >= 2) {
+
+        routeLine =
+            L.polyline(
+                routeCoordinates,
+                {
+                    weight: 7,
+                    opacity: 0.9
+                }
+            ).addTo(map);
+
+
+        map.fitBounds(
+            routeLine.getBounds(),
+            {
+                padding: [70, 70]
+            }
+        );
+
+    }
+    else {
+
+        map.setView(
+            [16.5062, 80.6480],
+            13
+        );
+
+    }
+
+
+    /* -----------------------------------------------------
+       DESTINATION MARKER
+       ----------------------------------------------------- */
+
+    if (destination) {
+
+        destinationMarker =
+            L.marker(
+                destination
+            )
+            .addTo(map)
+            .bindPopup(
+                "<b>Destination</b>"
+            );
+
+    }
+
+
+    setTimeout(
+        () => map.invalidateSize(true),
+        500
+    );
+
+}
+
+
+/* =========================================================
+   LIVE GPS
+   ========================================================= */
+
+function startGPS() {
+
+    if (
+        !navigator.geolocation
+    ) {
+
+        document.getElementById(
+            "gpsStatus"
+        ).textContent =
+            "GPS is not supported.";
+
+        return;
+    }
+
+
+    document.getElementById(
+        "gpsStatus"
+    ).textContent =
+        "Getting your live location...";
+
+
+    watchId =
+        navigator.geolocation.watchPosition(
+
+            position => {
+
+                const lat =
+                    position.coords.latitude;
+
+                const lon =
+                    position.coords.longitude;
+
+
+                console.log(
+                    "GPS:",
+                    lat,
+                    lon
+                );
+
+
+                updateUserLocation(
+                    lat,
+                    lon
+                );
+
+
+                updateNavigation(
+                    lat,
+                    lon
+                );
+
+            },
+
+            error => {
+
+                console.log(
+                    "GPS error:",
+                    error
+                );
+
+
+                document.getElementById(
+                    "gpsStatus"
+                ).textContent =
+                    "GPS unavailable — allow location access.";
+
+            },
+
+            {
+                enableHighAccuracy: true,
+                maximumAge: 2000,
+                timeout: 15000
+            }
+        );
+
+}
+
+
+/* =========================================================
+   USER MARKER
+   ========================================================= */
+
+function updateUserLocation(
+    lat,
+    lon
+) {
+
+    const position =
+        [lat, lon];
+
+
+    if (!userMarker) {
+
+        userMarker =
+            L.circleMarker(
+                position,
+                {
+                    radius: 9,
+                    weight: 3,
+                    fillOpacity: 1
+                }
+            )
+            .addTo(map)
+            .bindPopup(
+                "You are here"
+            );
+
+    }
+    else {
+
+        userMarker.setLatLng(
+            position
+        );
+
+    }
+
+
+    map.setView(
+        position,
+        16,
+        {
+            animate: true
+        }
+    );
+
+
+    document.getElementById(
+        "gpsStatus"
+    ).textContent =
+        "Live GPS • Navigation active";
+
+}
+
+
+/* =========================================================
+   NAVIGATION UPDATE
+   ========================================================= */
+
+function updateNavigation(
+    lat,
+    lon
+) {
+
+    if (!destination) return;
+
+
+    const remaining =
+        distanceKm(
+            lat,
+            lon,
+            destination[0],
+            destination[1]
+        );
+
+
+    /* Distance */
+
+    document.getElementById(
+        "navigationDistance"
+    ).textContent =
+        remaining < 1
+            ? Math.round(remaining * 1000) + " m"
+            : remaining.toFixed(1) + " km";
+
+
+    /* ETA */
+
+    const minutes =
+        Math.max(
+            1,
+            Math.round(
+                remaining / 35 * 60
+            )
+        );
+
+
+    document.getElementById(
+        "navigationTime"
+    ).textContent =
+        minutes + " min";
+
+
+    /* Arrival */
+
+    if (
+        remaining < 0.05
+    ) {
+
+        document.getElementById(
+            "instruction"
+        ).textContent =
+            "You have arrived";
+
+
+        document.getElementById(
+            "instructionDistance"
+        ).textContent =
+            "Destination reached";
+
+
+        document.getElementById(
+            "turnArrow"
+        ).textContent =
+            "✓";
+
+
+        document.getElementById(
+            "gpsStatus"
+        ).textContent =
+            "Arrived at destination";
+
+
+        return;
+
+    }
+
+
+    /*
+       Get next instruction from routing service.
+    */
+
+    getDirections(
+        lat,
+        lon
+    );
+
+}
+
+
+/* =========================================================
+   TURN-BY-TURN DIRECTIONS
+   ========================================================= */
+
+async function getDirections(
+    lat,
+    lon
+) {
+
+    if (!destination) return;
+
+
+    const url =
+        "https://router.project-osrm.org/route/v1/driving/" +
+        lon + "," + lat +
+        ";" +
+        destination[1] + "," + destination[0] +
+        "?overview=false&steps=true";
+
+
+    try {
+
+        const response =
+            await fetch(url);
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Routing request failed"
+            );
+
+        }
+
+
+        const data =
+            await response.json();
+
+
+        if (
+            !data.routes ||
+            !data.routes.length
+        ) {
+
+            throw new Error(
+                "No route"
+            );
+
+        }
+
+
+        const route =
+            data.routes[0];
+
+
+        /* -------------------------------------------------
+           REAL REMAINING DISTANCE
+           ------------------------------------------------- */
+
+        document.getElementById(
+            "navigationDistance"
+        ).textContent =
+            route.distance < 1000
+                ? Math.round(route.distance) + " m"
+                : (route.distance / 1000).toFixed(1) + " km";
+
+
+        /* -------------------------------------------------
+           REAL ETA
+           ------------------------------------------------- */
+
+        const minutes =
+            Math.max(
+                1,
+                Math.round(
+                    route.duration / 60
+                )
+            );
+
+
+        document.getElementById(
+            "navigationTime"
+        ).textContent =
+            minutes + " min";
+
+
+        /* -------------------------------------------------
+           NEXT STEP
+           ------------------------------------------------- */
+
+        if (
+            route.legs &&
+            route.legs[0] &&
+            route.legs[0].steps &&
+            route.legs[0].steps.length
+        ) {
+
+            const step =
+                route.legs[0].steps[0];
+
+
+            showInstruction(
+                step
+            );
+
+        }
+
+    }
+    catch (error) {
+
+        console.log(
+            "Directions error:",
+            error
+        );
+
+
+        document.getElementById(
+            "instruction"
+        ).textContent =
+            "Continue towards destination";
+
+
+        document.getElementById(
+            "instructionDistance"
+        ).textContent =
+            "Following recommended route";
+
+    }
+
+}
+
+
+/* =========================================================
+   INSTRUCTION UI
+   ========================================================= */
+
+function showInstruction(step) {
+
+    let instruction =
+        "Continue";
+
+
+    let arrow =
+        "↑";
+
+
+    const maneuver =
+        step.maneuver || {};
+
+
+    const modifier =
+        maneuver.modifier || "";
+
+
+    if (
+        maneuver.type === "arrive"
+    ) {
+
+        instruction =
+            "You have arrived";
+
+        arrow =
+            "✓";
+
+    }
+    else if (
+        maneuver.type === "depart"
+    ) {
+
+        instruction =
+            "Start driving";
+
+        arrow =
+            "↑";
+
+    }
+    else if (
+        modifier.includes("left")
+    ) {
+
+        instruction =
+            "Turn left";
+
+        arrow =
+            "←";
+
+    }
+    else if (
+        modifier.includes("right")
+    ) {
+
+        instruction =
+            "Turn right";
+
+        arrow =
+            "→";
+
+    }
+    else if (
+        modifier.includes("uturn")
+    ) {
+
+        instruction =
+            "Make a U-turn";
+
+        arrow =
+            "↩";
+
+    }
+    else if (
+        maneuver.type === "roundabout"
+    ) {
+
+        instruction =
+            "Enter roundabout";
+
+        arrow =
+            "↻";
+
+    }
+    else {
+
+        instruction =
+            "Continue straight";
+
+        arrow =
+            "↑";
+
+    }
+
+
+    if (
+        step.name &&
+        maneuver.type !== "arrive"
+    ) {
+
+        instruction +=
+            " on " + step.name;
+
+    }
+
+
+    document.getElementById(
+        "instruction"
+    ).textContent =
+        instruction;
+
+
+    document.getElementById(
+        "instructionDistance"
+    ).textContent =
+        step.distance < 1000
+            ? Math.round(step.distance) + " m"
+            : (step.distance / 1000).toFixed(1) + " km";
+
+
+    document.getElementById(
+        "turnArrow"
+    ).textContent =
+        arrow;
+
+}
+
+
+/* =========================================================
+   START
+   ========================================================= */
+
+if (loadRouteData()) {
+
+    initializeMap();
+
+    startGPS();
+
+}
+
+</script>
+
+</body>
+</html>
