@@ -25,7 +25,28 @@ from route_recommender import recommend_routes
 
 app = Flask(__name__)
 
-CORS(app)
+CORS(
+    app,
+    resources={
+        r"/*": {
+            "origins": "*"
+        }
+    },
+    methods=[
+        "GET",
+        "POST",
+        "OPTIONS"
+    ],
+    allow_headers=[
+        "Content-Type",
+        "Authorization"
+    ]
+)
+
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        return "", 204
 
 
 # ============================================================
