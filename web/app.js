@@ -2,7 +2,7 @@
    ROADQUALITY - MAIN APPLICATION JAVASCRIPT
    ========================================================= */
 
-const API_BASE = "http://127.0.0.1:5000";
+const API_BASE = "https://roadquality-m23e.onrender.com";
 
 const STORAGE_ANALYSIS = "roadqualityAnalysis";
 const STORAGE_SELECTED_ROUTE = "roadqualitySelectedRoute";
@@ -10,10 +10,9 @@ const STORAGE_SELECTED_ROUTE = "roadqualitySelectedRoute";
 let plannerMap = null;
 let recommendationMap = null;
 
-let plannerMarkers = [];
 let recommendationLayers = [];
 
-let routeColors = [
+const routeColors = [
     "#39d98a",
     "#4da6ff",
     "#ffb84d"
@@ -34,13 +33,24 @@ function escapeHtml(value) {
 }
 
 
+function numberValue(value, fallback = 0) {
+    const n = Number(value);
+
+    return Number.isFinite(n) ? n : fallback;
+}
+
+
 function formatDistance(distance) {
+
     const value = Number(distance);
 
     if (!Number.isFinite(value)) {
         return "--";
     }
 
+    /*
+     * Backend distance is in kilometres.
+     */
     if (value < 1) {
         return `${Math.round(value * 1000)} m`;
     }
@@ -50,6 +60,7 @@ function formatDistance(distance) {
 
 
 function formatTime(minutes) {
+
     const value = Number(minutes);
 
     if (!Number.isFinite(value)) {
@@ -64,6 +75,11 @@ function formatTime(minutes) {
     const mins = Math.round(value % 60);
 
     if (hours > 0) {
+
+        if (mins === 0) {
+            return `${hours}h`;
+        }
+
         return `${hours}h ${mins}m`;
     }
 
@@ -72,6 +88,7 @@ function formatTime(minutes) {
 
 
 function getHealthClass(value) {
+
     const health = Number(value);
 
     if (!Number.isFinite(health)) {
@@ -91,7 +108,12 @@ function getHealthClass(value) {
 
 
 function getConditionLabel(value) {
-    if (!value) {
+
+    if (
+        value === null ||
+        value === undefined ||
+        value === ""
+    ) {
         return "Unknown";
     }
 
@@ -101,44 +123,90 @@ function getConditionLabel(value) {
 }
 
 
+function setText(id, value) {
+
+    const element =
+        document.getElementById(id);
+
+    if (!element) {
+        return;
+    }
+
+    if (
+        value === null ||
+        value === undefined ||
+        value === ""
+    ) {
+        element.textContent = "—";
+    } else {
+        element.textContent = value;
+    }
+}
+
+
+/* =========================================================
+   COORDINATE HELPERS
+   ========================================================= */
+
 function normalizeCoordinates(coords) {
+
     if (!Array.isArray(coords)) {
         return [];
     }
 
     return coords
         .map(point => {
-            if (!Array.isArray(point) || point.length < 2) {
+
+            if (
+                !Array.isArray(point) ||
+                point.length < 2
+            ) {
                 return null;
             }
 
             const a = Number(point[0]);
             const b = Number(point[1]);
 
-            if (!Number.isFinite(a) || !Number.isFinite(b)) {
+            if (
+                !Number.isFinite(a) ||
+                !Number.isFinite(b)
+            ) {
                 return null;
             }
 
             /*
-             * RoadQuality backend returns [latitude, longitude].
+             * RoadQuality backend normally returns:
              *
-             * This also handles [longitude, latitude] defensively.
+             * [latitude, longitude]
+             *
+             * But also support:
+             *
+             * [longitude, latitude]
              */
-            if (Math.abs(a) <= 90 && Math.abs(b) <= 180) {
+
+            if (
+                Math.abs(a) <= 90 &&
+                Math.abs(b) <= 180
+            ) {
                 return [a, b];
             }
 
-            if (Math.abs(b) <= 90 && Math.abs(a) <= 180) {
+            if (
+                Math.abs(b) <= 90 &&
+                Math.abs(a) <= 180
+            ) {
                 return [b, a];
             }
 
             return null;
+
         })
         .filter(Boolean);
 }
 
 
 function getRouteCoordinates(route) {
+
     if (!route) {
         return [];
     }
@@ -147,37 +215,470 @@ function getRouteCoordinates(route) {
         route.coordinates ||
         route.route_coordinates ||
         route.coords ||
-        route.geometry;
+        route.geometry ||
+        route.path ||
+        route.polyline;
+
 
     /*
-     * Some APIs return geometry as:
-     * { coordinates: [[lon, lat], ...] }
+     * GeoJSON:
+     *
+     * {
+     *   geometry: {
+     *      coordinates: [...]
+     *   }
+     * }
      */
+
     if (
         coordinates &&
         typeof coordinates === "object" &&
         !Array.isArray(coordinates) &&
         Array.isArray(coordinates.coordinates)
     ) {
-        coordinates = coordinates.coordinates;
+        coordinates =
+            coordinates.coordinates;
     }
 
-    return normalizeCoordinates(coordinates);
+
+    /*
+     * Another possible format:
+     *
+     * {
+     *   geometry: {
+     *      geometry: {
+     *          coordinates: [...]
+     *      }
+     *   }
+     * }
+     */
+
+    if (
+        coordinates &&
+        typeof coordinates === "object" &&
+        !Array.isArray(coordinates) &&
+        coordinates.geometry &&
+        Array.isArray(
+            coordinates.geometry.coordinates
+        )
+    ) {
+        coordinates =
+            coordinates.geometry.coordinates;
+    }
+
+
+    return normalizeCoordinates(
+        coordinates
+    );
 }
 
 
-function getRoutesFromAnalysis(analysis) {
-    if (!analysis) {
+/* =========================================================
+   ANALYSIS / ROUTE EXTRACTION
+   ========================================================= */
+
+function getStoredAnalysis() {
+
+    const raw =
+        localStorage.getItem(
+            STORAGE_ANALYSIS
+        );
+
+    if (!raw) {
+        return null;
+    }
+
+    try {
+
+        return JSON.parse(raw);
+
+    } catch (error) {
+
+        console.error(
+            "RoadQuality stored analysis JSON error:",
+            error
+        );
+
+        return null;
+    }
+}
+
+
+function getRoutesFromAnalysis(data) {
+
+    if (!data) {
         return [];
     }
 
+
+    /*
+     * Support every route key currently used
+     * by different versions of the backend.
+     */
+
+    const possible =
+        data.routes ??
+        data.route_results ??
+        data.candidate_routes ??
+        data.candidates ??
+        data.recommended_routes ??
+        data.route_options ??
+        [];
+
+
+    /*
+     * Sometimes an API wraps routes inside
+     * another object.
+     */
+
+    if (
+        possible &&
+        !Array.isArray(possible) &&
+        typeof possible === "object"
+    ) {
+
+        if (Array.isArray(possible.routes)) {
+            return possible.routes;
+        }
+
+        if (
+            Array.isArray(
+                possible.route_results
+            )
+        ) {
+            return possible.route_results;
+        }
+
+        if (
+            Array.isArray(
+                possible.candidates
+            )
+        ) {
+            return possible.candidates;
+        }
+    }
+
+
+    if (!Array.isArray(possible)) {
+        return [];
+    }
+
+
+    return possible.filter(route => {
+
+        return (
+            route &&
+            typeof route === "object"
+        );
+    });
+}
+
+
+/* =========================================================
+   RECOMMENDED ROUTE
+   ========================================================= */
+
+function getRecommendedRoute(
+    data,
+    routes
+) {
+
+    if (!routes.length) {
+        return null;
+    }
+
+
+    /*
+     * First check explicit recommended route
+     * object.
+     */
+
+    if (
+        data.recommended_route &&
+        typeof data.recommended_route === "object"
+    ) {
+
+        return data.recommended_route;
+    }
+
+
+    if (
+        data.recommendedRoute &&
+        typeof data.recommendedRoute === "object"
+    ) {
+
+        return data.recommendedRoute;
+    }
+
+
+    /*
+     * Then check recommended route name.
+     */
+
+    const recommendedName =
+        typeof data.recommended_route === "string"
+            ? data.recommended_route
+            : typeof data.recommendedRoute === "string"
+                ? data.recommendedRoute
+                : null;
+
+
+    if (recommendedName) {
+
+        const found =
+            routes.find(route => {
+
+                return (
+                    route.name ===
+                    recommendedName
+                );
+
+            });
+
+
+        if (found) {
+            return found;
+        }
+    }
+
+
+    /*
+     * Then check recommended index.
+     */
+
+    const rawIndex =
+        data.recommended_route_index ??
+        data.recommendedRouteIndex;
+
+
+    const index =
+        Number(rawIndex);
+
+
+    if (
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < routes.length
+    ) {
+
+        return routes[index];
+    }
+
+
+    /*
+     * Finally fall back to first route.
+     */
+
+    return routes[0];
+}
+
+
+function getRecommendedIndex(
+    data,
+    routes,
+    recommended
+) {
+
+    const rawIndex =
+        data.recommended_route_index ??
+        data.recommendedRouteIndex;
+
+
+    const index =
+        Number(rawIndex);
+
+
+    if (
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < routes.length
+    ) {
+        return index;
+    }
+
+
+    if (recommended) {
+
+        const found =
+            routes.indexOf(
+                recommended
+            );
+
+        if (found >= 0) {
+            return found;
+        }
+
+
+        if (recommended.name) {
+
+            const namedIndex =
+                routes.findIndex(
+                    route =>
+                        route.name ===
+                        recommended.name
+                );
+
+            if (namedIndex >= 0) {
+                return namedIndex;
+            }
+        }
+    }
+
+
+    return 0;
+}
+
+
+/* =========================================================
+   ROUTE VALUES
+   ========================================================= */
+
+function getRouteHealth(route) {
+
+    const value =
+        route.road_health ??
+        route.health ??
+        route.health_score ??
+        route.roadHealth ??
+        route.healthScore;
+
+
+    if (
+        value === null ||
+        value === undefined ||
+        value === ""
+    ) {
+        return null;
+    }
+
+
+    const n = Number(value);
+
+    return Number.isFinite(n)
+        ? n
+        : null;
+}
+
+
+function getRouteCondition(route) {
+
     return (
-        analysis.routes ||
-        analysis.route_results ||
-        analysis.candidate_routes ||
-        analysis.candidates ||
-        []
+        route.condition ??
+        route.road_condition ??
+        route.roadCondition ??
+        "Unknown"
     );
+}
+
+
+function getRouteScore(route) {
+
+    return numberValue(
+        route.final_score ??
+        route.score ??
+        route.route_score ??
+        route.routeScore,
+        0
+    );
+}
+
+
+function getRouteDistance(route) {
+
+    return numberValue(
+        route.distance ??
+        route.distance_km ??
+        route.distanceKm,
+        0
+    );
+}
+
+
+function getRouteTime(route) {
+
+    return numberValue(
+        route.travel_time ??
+        route.travel_time_minutes ??
+        route.travelTime ??
+        route.time,
+        0
+    );
+}
+
+
+function getRouteCoverage(
+    route,
+    data
+) {
+
+    const value =
+        route.coverage ??
+        route.ai_coverage ??
+        route.overall_coverage ??
+        data?.overall_coverage ??
+        data?.coverage;
+
+
+    if (
+        value === null ||
+        value === undefined ||
+        value === ""
+    ) {
+        return null;
+    }
+
+
+    const n = Number(value);
+
+    return Number.isFinite(n)
+        ? n
+        : null;
+}
+
+
+function getRouteSegments(
+    route
+) {
+
+    const explicit =
+        route.total_segments ??
+        route.totalSegments ??
+        route.segment_count ??
+        route.segmentCount;
+
+
+    if (
+        explicit !== null &&
+        explicit !== undefined &&
+        explicit !== ""
+    ) {
+
+        return numberValue(
+            explicit,
+            0
+        );
+    }
+
+
+    const ai =
+        numberValue(
+            route.ai_segments ??
+            route.ai_segment_count ??
+            route.aiSegments,
+            0
+        );
+
+
+    const osm =
+        numberValue(
+            route.osm_segments ??
+            route.osm_segment_count ??
+            route.osmSegments,
+            0
+        );
+
+
+    return ai + osm;
 }
 
 
@@ -185,337 +686,505 @@ function getRoutesFromAnalysis(analysis) {
    LOCATION AUTOCOMPLETE
    ========================================================= */
 
-function setupLocationAutocomplete(inputId) {
+function setupLocationAutocomplete(
+    inputId
+) {
 
-    const input = document.getElementById(inputId);
+    const input =
+        document.getElementById(
+            inputId
+        );
 
     if (!input) {
         return;
     }
 
-    const wrapper = input.parentElement;
+
+    const wrapper =
+        input.parentElement;
+
 
     if (!wrapper) {
         return;
     }
 
-    wrapper.style.position = "relative";
 
-    const dropdown = document.createElement("div");
+    wrapper.style.position =
+        "relative";
 
-    dropdown.className = "location-suggestions";
 
-    wrapper.appendChild(dropdown);
+    const dropdown =
+        document.createElement(
+            "div"
+        );
+
+
+    dropdown.className =
+        "location-suggestions";
+
+
+    wrapper.appendChild(
+        dropdown
+    );
+
 
     let timer = null;
     let controller = null;
 
 
-    input.addEventListener("input", () => {
+    input.addEventListener(
+        "input",
+        () => {
 
-        clearTimeout(timer);
-
-        /*
-         * Clear previously selected coordinates whenever
-         * the user changes the text.
-         */
-        delete input.dataset.latitude;
-        delete input.dataset.longitude;
-        delete input.dataset.displayName;
-
-        const query = input.value.trim();
-
-        dropdown.innerHTML = "";
-        dropdown.classList.remove("show");
-
-        if (query.length < 2) {
-            return;
-        }
-
-        timer = setTimeout(async () => {
-
-            try {
-
-                if (controller) {
-                    controller.abort();
-                }
-
-                controller = new AbortController();
-
-                const response = await fetch(
-                    `${API_BASE}/suggest?q=${encodeURIComponent(query)}`,
-                    {
-                        signal: controller.signal
-                    }
-                );
-
-                if (!response.ok) {
-                    throw new Error(
-                        `Suggestion request failed: ${response.status}`
-                    );
-                }
-
-                const data = await response.json();
-
-                const suggestions = data.suggestions || [];
-
-                dropdown.innerHTML = "";
-
-                if (!suggestions.length) {
-                    dropdown.classList.remove("show");
-                    return;
-                }
+            clearTimeout(timer);
 
 
-                suggestions.forEach(place => {
-
-                    const item = document.createElement("div");
-
-                    item.className = "location-suggestion";
-
-                    const parts =
-                        String(place.display_name || "")
-                            .split(",");
-
-                    const title =
-                        parts[0]?.trim() ||
-                        place.display_name ||
-                        "Unknown location";
-
-                    const subtitle =
-                        parts
-                            .slice(1, 4)
-                            .map(x => x.trim())
-                            .filter(Boolean)
-                            .join(", ");
-
-                    item.innerHTML = `
-                        <div class="suggestion-icon">
-                            <span>⌖</span>
-                        </div>
-
-                        <div class="suggestion-text">
-                            <strong>
-                                ${escapeHtml(title)}
-                            </strong>
-
-                            <span>
-                                ${escapeHtml(subtitle)}
-                            </span>
-                        </div>
-                    `;
+            delete input.dataset.latitude;
+            delete input.dataset.longitude;
+            delete input.dataset.displayName;
 
 
-                    item.addEventListener("mousedown", event => {
-                        event.preventDefault();
-                    });
+            const query =
+                input.value.trim();
 
 
-                    item.addEventListener("click", () => {
-
-                        input.value =
-                            place.display_name || title;
-
-                        input.dataset.latitude =
-                            place.latitude;
-
-                        input.dataset.longitude =
-                            place.longitude;
-
-                        input.dataset.displayName =
-                            place.display_name || title;
-
-                        dropdown.innerHTML = "";
-
-                        dropdown.classList.remove("show");
-                    });
+            dropdown.innerHTML =
+                "";
 
 
-                    dropdown.appendChild(item);
-                });
+            dropdown.classList.remove(
+                "show"
+            );
 
 
-                dropdown.classList.add("show");
-
-            } catch (error) {
-
-                if (error.name !== "AbortError") {
-                    console.error(
-                        "Location suggestion error:",
-                        error
-                    );
-                }
+            if (query.length < 2) {
+                return;
             }
 
-        }, 350);
-    });
+
+            timer =
+                setTimeout(
+                    async () => {
+
+                        try {
+
+                            if (controller) {
+                                controller.abort();
+                            }
 
 
-    input.addEventListener("focus", () => {
+                            controller =
+                                new AbortController();
 
-        if (input.value.trim().length >= 2) {
-            input.dispatchEvent(new Event("input"));
+
+                            const response =
+                                await fetch(
+                                    `${API_BASE}/suggest?q=${encodeURIComponent(query)}`,
+                                    {
+                                        signal:
+                                            controller.signal
+                                    }
+                                );
+
+
+                            if (!response.ok) {
+
+                                throw new Error(
+                                    `Suggestion request failed: ${response.status}`
+                                );
+                            }
+
+
+                            const data =
+                                await response.json();
+
+
+                            const suggestions =
+                                Array.isArray(
+                                    data.suggestions
+                                )
+                                    ? data.suggestions
+                                    : [];
+
+
+                            dropdown.innerHTML =
+                                "";
+
+
+                            if (!suggestions.length) {
+
+                                dropdown.classList.remove(
+                                    "show"
+                                );
+
+                                return;
+                            }
+
+
+                            suggestions.forEach(
+                                place => {
+
+                                    const item =
+                                        document.createElement(
+                                            "div"
+                                        );
+
+
+                                    item.className =
+                                        "location-suggestion";
+
+
+                                    const parts =
+                                        String(
+                                            place.display_name ||
+                                            ""
+                                        )
+                                            .split(",");
+
+
+                                    const title =
+                                        parts[0]?.trim() ||
+                                        place.display_name ||
+                                        "Unknown location";
+
+
+                                    const subtitle =
+                                        parts
+                                            .slice(1, 4)
+                                            .map(
+                                                x =>
+                                                    x.trim()
+                                            )
+                                            .filter(
+                                                Boolean
+                                            )
+                                            .join(", ");
+
+
+                                    item.innerHTML = `
+                                        <div class="suggestion-icon">
+                                            <span>⌖</span>
+                                        </div>
+
+                                        <div class="suggestion-text">
+                                            <strong>
+                                                ${escapeHtml(title)}
+                                            </strong>
+
+                                            <span>
+                                                ${escapeHtml(subtitle)}
+                                            </span>
+                                        </div>
+                                    `;
+
+
+                                    item.addEventListener(
+                                        "mousedown",
+                                        event => {
+                                            event.preventDefault();
+                                        }
+                                    );
+
+
+                                    item.addEventListener(
+                                        "click",
+                                        () => {
+
+                                            input.value =
+                                                place.display_name ||
+                                                title;
+
+
+                                            input.dataset.latitude =
+                                                place.latitude;
+
+
+                                            input.dataset.longitude =
+                                                place.longitude;
+
+
+                                            input.dataset.displayName =
+                                                place.display_name ||
+                                                title;
+
+
+                                            dropdown.innerHTML =
+                                                "";
+
+
+                                            dropdown.classList.remove(
+                                                "show"
+                                            );
+                                        }
+                                    );
+
+
+                                    dropdown.appendChild(
+                                        item
+                                    );
+                                }
+                            );
+
+
+                            dropdown.classList.add(
+                                "show"
+                            );
+
+                        } catch (error) {
+
+                            if (
+                                error.name !==
+                                "AbortError"
+                            ) {
+
+                                console.error(
+                                    "Location suggestion error:",
+                                    error
+                                );
+                            }
+                        }
+
+                    },
+                    350
+                );
         }
-    });
+    );
 
 
-    document.addEventListener("click", event => {
+    input.addEventListener(
+        "focus",
+        () => {
 
-        if (!wrapper.contains(event.target)) {
-            dropdown.classList.remove("show");
+            if (
+                input.value.trim().length >= 2
+            ) {
+
+                input.dispatchEvent(
+                    new Event("input")
+                );
+            }
         }
-    });
+    );
 
 
-    input.addEventListener("keydown", event => {
+    input.addEventListener(
+        "keydown",
+        event => {
 
-        if (event.key === "Escape") {
-            dropdown.classList.remove("show");
+            if (event.key === "Escape") {
+
+                dropdown.classList.remove(
+                    "show"
+                );
+            }
         }
-    });
+    );
+
+
+    document.addEventListener(
+        "click",
+        event => {
+
+            if (
+                !wrapper.contains(
+                    event.target
+                )
+            ) {
+
+                dropdown.classList.remove(
+                    "show"
+                );
+            }
+        }
+    );
 }
 
 
 /* =========================================================
-   USE CURRENT LOCATION
+   CURRENT LOCATION
    ========================================================= */
 
 function setupLocationButton() {
 
     const button =
-        document.getElementById("useLocationBtn");
+        document.getElementById(
+            "useLocationBtn"
+        );
+
 
     const source =
-        document.getElementById("source");
+        document.getElementById(
+            "source"
+        );
+
 
     if (!button || !source) {
         return;
     }
 
 
-    button.addEventListener("click", () => {
+    button.addEventListener(
+        "click",
+        () => {
 
-        if (!navigator.geolocation) {
+            if (!navigator.geolocation) {
 
-            showError(
-                "Geolocation is not supported by this browser."
-            );
+                showError(
+                    "Geolocation is not supported by this browser."
+                );
 
-            return;
-        }
-
-
-        button.disabled = true;
-
-        const originalText =
-            button.innerHTML;
-
-        button.innerHTML = "Locating...";
+                return;
+            }
 
 
-        navigator.geolocation.getCurrentPosition(
-
-            async position => {
-
-                const latitude =
-                    position.coords.latitude;
-
-                const longitude =
-                    position.coords.longitude;
+            button.disabled =
+                true;
 
 
-                source.dataset.latitude =
-                    latitude;
-
-                source.dataset.longitude =
-                    longitude;
+            const originalText =
+                button.innerHTML;
 
 
-                try {
-
-                    const response =
-                        await fetch(
-                            `${API_BASE}/suggest?q=${encodeURIComponent(
-                                `${latitude},${longitude}`
-                            )}`
-                        );
-
-                    const data =
-                        await response.json();
-
-                    const first =
-                        data.suggestions?.[0];
+            button.innerHTML =
+                "Locating...";
 
 
-                    if (first) {
+            navigator.geolocation.getCurrentPosition(
 
-                        source.value =
-                            first.display_name;
+                async position => {
 
-                        source.dataset.displayName =
-                            first.display_name;
-                    } else {
+                    const latitude =
+                        position.coords.latitude;
+
+
+                    const longitude =
+                        position.coords.longitude;
+
+
+                    source.dataset.latitude =
+                        latitude;
+
+
+                    source.dataset.longitude =
+                        longitude;
+
+
+                    try {
+
+                        const response =
+                            await fetch(
+                                `${API_BASE}/suggest?q=${encodeURIComponent(
+                                    `${latitude},${longitude}`
+                                )}`
+                            );
+
+
+                        const data =
+                            await response.json();
+
+
+                        const first =
+                            data.suggestions?.[0];
+
+
+                        if (first) {
+
+                            source.value =
+                                first.display_name;
+
+
+                            source.dataset.displayName =
+                                first.display_name;
+
+                        } else {
+
+                            source.value =
+                                `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+                        }
+
+                    } catch {
 
                         source.value =
                             `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
                     }
 
-                } catch {
 
-                    source.value =
-                        `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+                    button.disabled =
+                        false;
+
+
+                    button.innerHTML =
+                        originalText;
+                },
+
+
+                error => {
+
+                    console.error(error);
+
+
+                    showError(
+                        "Unable to get your current location. Please allow location access."
+                    );
+
+
+                    button.disabled =
+                        false;
+
+
+                    button.innerHTML =
+                        originalText;
+                },
+
+
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 30000
                 }
-
-
-                button.disabled = false;
-                button.innerHTML = originalText;
-            },
-
-
-            error => {
-
-                console.error(error);
-
-                showError(
-                    "Unable to get your current location. Please allow location access."
-                );
-
-                button.disabled = false;
-                button.innerHTML = originalText;
-            },
-
-
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 30000
-            }
-        );
-    });
+            );
+        }
+    );
 }
 
 
 /* =========================================================
-   ERROR MESSAGE
+   ERROR
    ========================================================= */
 
 function showError(message) {
 
     const errorBox =
-        document.getElementById("errorBox");
+        document.getElementById(
+            "errorBox"
+        );
+
 
     if (!errorBox) {
+
         alert(message);
+
         return;
     }
 
-    errorBox.textContent = message;
 
-    errorBox.hidden = false;
+    errorBox.textContent =
+        message;
 
-    setTimeout(() => {
-        errorBox.hidden = true;
-    }, 6000);
+
+    errorBox.hidden =
+        false;
+
+
+    setTimeout(
+        () => {
+
+            errorBox.hidden =
+                true;
+
+        },
+        6000
+    );
 }
 
 
@@ -526,13 +1195,18 @@ function showError(message) {
 function showLoading(show) {
 
     const overlay =
-        document.getElementById("loadingOverlay");
+        document.getElementById(
+            "loadingOverlay"
+        );
+
 
     if (!overlay) {
         return;
     }
 
-    overlay.hidden = !show;
+
+    overlay.hidden =
+        !show;
 }
 
 
@@ -543,17 +1217,26 @@ function showLoading(show) {
 function initializePlannerMap() {
 
     const element =
-        document.getElementById("plannerMap");
+        document.getElementById(
+            "plannerMap"
+        );
 
-    if (!element || typeof L === "undefined") {
+
+    if (
+        !element ||
+        typeof L === "undefined"
+    ) {
         return;
     }
 
 
     plannerMap =
-        L.map(element, {
-            zoomControl: false
-        })
+        L.map(
+            element,
+            {
+                zoomControl: false
+            }
+        )
         .setView(
             [16.5062, 80.6480],
             12
@@ -564,226 +1247,271 @@ function initializePlannerMap() {
         "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
         {
             maxZoom: 19,
-            attribution: "&copy; OpenStreetMap contributors"
+            attribution:
+                "&copy; OpenStreetMap contributors"
         }
-    ).addTo(plannerMap);
+    ).addTo(
+        plannerMap
+    );
 
 
-    L.control.zoom({
-        position: "bottomright"
-    }).addTo(plannerMap);
+    L.control.zoom(
+        {
+            position:
+                "bottomright"
+        }
+    ).addTo(
+        plannerMap
+    );
 
 
-    setTimeout(() => {
-        plannerMap.invalidateSize(true);
-    }, 400);
+    setTimeout(
+        () => {
+
+            plannerMap.invalidateSize(
+                true
+            );
+
+        },
+        400
+    );
 }
 
 
 /* =========================================================
-   PLANNER FORM
+   ANALYZE ROUTE
    ========================================================= */
 
 function setupRouteForm() {
 
     const form =
-        document.getElementById("routeForm");
+        document.getElementById(
+            "routeForm"
+        );
+
 
     if (!form) {
         return;
     }
 
 
-    form.addEventListener("submit", async event => {
+    form.addEventListener(
+        "submit",
+        async event => {
 
-        event.preventDefault();
-
-
-        const sourceInput =
-            document.getElementById("source");
-
-        const destinationInput =
-            document.getElementById("destination");
-
-        const preferenceInput =
-            document.getElementById("preference");
+            event.preventDefault();
 
 
-        const source =
-            sourceInput?.value.trim();
-
-        const destination =
-            destinationInput?.value.trim();
-
-        const preference =
-            preferenceInput?.value ||
-            "balanced";
-
-
-        if (!source || !destination) {
-
-            showError(
-                "Please enter both source and destination."
-            );
-
-            return;
-        }
-
-
-        if (
-            source.toLowerCase() ===
-            destination.toLowerCase()
-        ) {
-
-            showError(
-                "Source and destination cannot be the same."
-            );
-
-            return;
-        }
-
-
-        showLoading(true);
-
-
-        try {
-
-            const response =
-                await fetch(
-                    `${API_BASE}/analyze`,
-                    {
-                        method: "POST",
-
-                        headers: {
-                            "Content-Type":
-                                "application/json"
-                        },
-
-                        body: JSON.stringify({
-                            source,
-                            destination,
-                            preference
-                        })
-                    }
+            const sourceInput =
+                document.getElementById(
+                    "source"
                 );
 
 
-            const data =
-                await response.json();
-
-
-            if (!response.ok) {
-
-                throw new Error(
-                    data.error ||
-                    data.message ||
-                    "Route analysis failed."
+            const destinationInput =
+                document.getElementById(
+                    "destination"
                 );
+
+
+            const preferenceInput =
+                document.getElementById(
+                    "preference"
+                );
+
+
+            const source =
+                sourceInput?.value.trim();
+
+
+            const destination =
+                destinationInput?.value.trim();
+
+
+            const preference =
+                preferenceInput?.value ||
+                "balanced";
+
+
+            if (!source || !destination) {
+
+                showError(
+                    "Please enter both source and destination."
+                );
+
+                return;
             }
 
 
             if (
-                data.status &&
-                String(data.status).toLowerCase()
-                    === "error"
+                source.toLowerCase() ===
+                destination.toLowerCase()
             ) {
 
-                throw new Error(
-                    data.error ||
-                    "Unable to analyze route."
+                showError(
+                    "Source and destination cannot be the same."
                 );
+
+                return;
             }
 
 
-            localStorage.setItem(
-                STORAGE_ANALYSIS,
-                JSON.stringify(data)
+            showLoading(
+                true
             );
 
 
-            /*
-             * Determine the recommended route.
-             */
-            const routes =
-                getRoutesFromAnalysis(data);
+            try {
 
-            let selectedRoute = null;
+                const response =
+                    await fetch(
+                        `${API_BASE}/analyze`,
+                        {
+                            method: "POST",
+
+                            headers: {
+                                "Content-Type":
+                                    "application/json"
+                            },
+
+                            body:
+                                JSON.stringify({
+                                    source,
+                                    destination,
+                                    preference
+                                })
+                        }
+                    );
 
 
-            if (
-                Number.isInteger(
-                    data.recommended_route_index
-                ) &&
-                routes[data.recommended_route_index]
-            ) {
-
-                selectedRoute =
-                    routes[
-                        data.recommended_route_index
-                    ];
-            }
+                const data =
+                    await response.json();
 
 
-            if (!selectedRoute && data.recommended_route) {
+                if (!response.ok) {
+
+                    throw new Error(
+                        data.error ||
+                        data.message ||
+                        "Route analysis failed."
+                    );
+                }
+
 
                 if (
-                    typeof data.recommended_route ===
-                    "object"
+                    data.status &&
+                    String(
+                        data.status
+                    ).toLowerCase() ===
+                        "error"
                 ) {
 
-                    selectedRoute =
-                        data.recommended_route;
-
-                } else {
-
-                    selectedRoute =
-                        routes.find(route =>
-                            route.name ===
-                            data.recommended_route
-                        );
+                    throw new Error(
+                        data.error ||
+                        data.message ||
+                        "Unable to analyze route."
+                    );
                 }
-            }
 
 
-            if (!selectedRoute && routes.length) {
-                selectedRoute = routes[0];
-            }
-
-
-            if (selectedRoute) {
+                /*
+                 * IMPORTANT:
+                 * Store the complete backend response.
+                 */
 
                 localStorage.setItem(
-                    STORAGE_SELECTED_ROUTE,
-                    JSON.stringify(
-                        selectedRoute
-                    )
+                    STORAGE_ANALYSIS,
+                    JSON.stringify(data)
+                );
+
+
+                /*
+                 * Immediately verify that routes
+                 * actually exist.
+                 */
+
+                const routes =
+                    getRoutesFromAnalysis(
+                        data
+                    );
+
+
+                console.log(
+                    "RoadQuality /analyze response:",
+                    data
+                );
+
+
+                console.log(
+                    "RoadQuality routes detected:",
+                    routes.length,
+                    routes
+                );
+
+
+                if (!routes.length) {
+
+                    throw new Error(
+                        "Analysis completed, but no routes were returned by the server."
+                    );
+                }
+
+
+                const recommended =
+                    getRecommendedRoute(
+                        data,
+                        routes
+                    );
+
+
+                if (recommended) {
+
+                    localStorage.setItem(
+                        STORAGE_SELECTED_ROUTE,
+                        JSON.stringify(
+                            {
+                                ...recommended,
+                                coordinates:
+                                    getRouteCoordinates(
+                                        recommended
+                                    )
+                            }
+                        )
+                    );
+                }
+
+
+                window.location.href =
+                    "recommendation.html";
+
+
+            } catch (error) {
+
+                console.error(
+                    "RoadQuality analyze error:",
+                    error
+                );
+
+
+                showError(
+                    error.message ||
+                    "Something went wrong while analyzing the route."
+                );
+
+
+            } finally {
+
+                showLoading(
+                    false
                 );
             }
-
-
-            window.location.href =
-                "recommendation.html";
-
-
-        } catch (error) {
-
-            console.error(error);
-
-            showError(
-                error.message ||
-                "Something went wrong while analyzing the route."
-            );
-
-        } finally {
-
-            showLoading(false);
         }
-    });
+    );
 }
 
 
 /* =========================================================
-   RECOMMENDATION PAGE
+   RECOMMENDATION MAP
    ========================================================= */
 
 function initializeRecommendationPage() {
@@ -793,58 +1521,86 @@ function initializeRecommendationPage() {
             "recommendationMap"
         );
 
-    if (!mapElement || typeof L === "undefined") {
+
+    if (
+        !mapElement ||
+        typeof L === "undefined"
+    ) {
         return;
     }
 
 
-    const raw =
-        localStorage.getItem(
-            STORAGE_ANALYSIS
+    const analysis =
+        getStoredAnalysis();
+
+
+    if (!analysis) {
+
+        console.warn(
+            "RoadQuality: no stored analysis."
         );
 
-
-    if (!raw) {
         return;
     }
 
 
-    let analysis;
-
-    try {
-        analysis = JSON.parse(raw);
-    } catch {
-        return;
-    }
+    console.log(
+        "RoadQuality recommendation analysis:",
+        analysis
+    );
 
 
     const routes =
-        getRoutesFromAnalysis(analysis);
+        getRoutesFromAnalysis(
+            analysis
+        );
+
+
+    console.log(
+        "RoadQuality recommendation routes:",
+        routes
+    );
 
 
     if (!routes.length) {
+
+        showRecommendationEmptyState(
+            "No routes were returned by the analysis."
+        );
+
         return;
     }
 
 
     recommendationMap =
-        L.map(mapElement, {
-            zoomControl: false
-        });
+        L.map(
+            mapElement,
+            {
+                zoomControl: false
+            }
+        );
 
 
     L.tileLayer(
         "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
         {
             maxZoom: 19,
-            attribution: "&copy; OpenStreetMap contributors"
+            attribution:
+                "&copy; OpenStreetMap contributors"
         }
-    ).addTo(recommendationMap);
+    ).addTo(
+        recommendationMap
+    );
 
 
-    L.control.zoom({
-        position: "bottomright"
-    }).addTo(recommendationMap);
+    L.control.zoom(
+        {
+            position:
+                "bottomright"
+        }
+    ).addTo(
+        recommendationMap
+    );
 
 
     drawRecommendationRoutes(
@@ -853,20 +1609,27 @@ function initializeRecommendationPage() {
     );
 
 
-    renderRecommendation(
+    renderRecommendationPage(
         analysis,
         routes
     );
 
 
-    setTimeout(() => {
-        recommendationMap.invalidateSize(true);
-    }, 500);
+    setTimeout(
+        () => {
+
+            recommendationMap.invalidateSize(
+                true
+            );
+
+        },
+        500
+    );
 }
 
 
 /* =========================================================
-   DRAW ALL ROUTES
+   DRAW ROUTES
    ========================================================= */
 
 function drawRecommendationRoutes(
@@ -874,73 +1637,118 @@ function drawRecommendationRoutes(
     analysis
 ) {
 
-    recommendationLayers = [];
+    recommendationLayers =
+        [];
 
 
-    const bounds = [];
+    const bounds =
+        [];
 
 
-    routes.slice(0, 3).forEach(
-        (route, index) => {
-
-            const coordinates =
-                getRouteCoordinates(route);
-
-
-            if (coordinates.length < 2) {
-                return;
-            }
+    const recommended =
+        getRecommendedRoute(
+            analysis,
+            routes
+        );
 
 
-            const selected =
-                isRecommendedRoute(
-                    route,
-                    index,
-                    analysis
+    const recommendedIndex =
+        getRecommendedIndex(
+            analysis,
+            routes,
+            recommended
+        );
+
+
+    routes
+        .slice(0, 3)
+        .forEach(
+            (route, index) => {
+
+                const coordinates =
+                    getRouteCoordinates(
+                        route
+                    );
+
+
+                console.log(
+                    `Route ${index + 1} coordinates:`,
+                    coordinates.length
                 );
 
 
-            const polyline =
-                L.polyline(
-                    coordinates,
-                    {
-                        color:
-                            routeColors[index] ||
-                            "#39d98a",
+                if (
+                    coordinates.length < 2
+                ) {
 
-                        weight:
-                            selected ? 8 : 5,
+                    console.warn(
+                        `Route ${index + 1} has no usable coordinates.`
+                    );
 
-                        opacity:
-                            selected ? 0.95 : 0.65,
-
-                        lineCap: "round",
-
-                        lineJoin: "round"
-                    }
-                )
-                .addTo(recommendationMap);
-
-
-            polyline.bindTooltip(
-                route.name ||
-                `Route ${index + 1}`,
-                {
-                    sticky: true
+                    return;
                 }
-            );
 
 
-            recommendationLayers.push(
-                polyline
-            );
+                const selected =
+                    index ===
+                    recommendedIndex;
 
 
-            coordinates.forEach(point => {
-                bounds.push(point);
-            });
-        }
-    );
+                const polyline =
+                    L.polyline(
+                        coordinates,
+                        {
+                            color:
+                                routeColors[index] ||
+                                "#39d98a",
+
+                            weight:
+                                selected
+                                    ? 8
+                                    : 5,
+
+                            opacity:
+                                selected
+                                    ? 0.95
+                                    : 0.65,
+
+                            lineCap:
+                                "round",
+
+                            lineJoin:
+                                "round"
+                        }
+                    )
+                    .addTo(
+                        recommendationMap
+                    );
+
+
+                polyline.bindTooltip(
+                    route.name ||
+                    `Route ${index + 1}`,
+                    {
+                        sticky:
+                            true
+                    }
+                );
+
+
+                recommendationLayers.push(
+                    polyline
+                );
+
+
+                coordinates.forEach(
+                    point => {
+
+                        bounds.push(
+                            point
+                        );
+                    }
+                );
+            }
+        );
 
 
     if (bounds.length) {
@@ -948,100 +1756,284 @@ function drawRecommendationRoutes(
         recommendationMap.fitBounds(
             bounds,
             {
-                padding: [50, 50]
+                padding:
+                    [50, 50]
             }
         );
-    }
-}
 
+    } else {
 
-function isRecommendedRoute(
-    route,
-    index,
-    analysis
-) {
+        /*
+         * If route geometry is unavailable,
+         * still keep the map usable.
+         */
 
-    if (
-        Number.isInteger(
-            analysis.recommended_route_index
-        )
-    ) {
-
-        return (
-            index ===
-            analysis.recommended_route_index
+        recommendationMap.setView(
+            [16.5062, 80.6480],
+            11
         );
     }
-
-
-    if (
-        analysis.recommended_route &&
-        typeof analysis.recommended_route ===
-            "string"
-    ) {
-
-        return (
-            route.name ===
-            analysis.recommended_route
-        );
-    }
-
-
-    return index === 0;
 }
 
 
 /* =========================================================
-   RENDER RECOMMENDATION
+   RECOMMENDATION PAGE
    ========================================================= */
 
-function renderRecommendation(
-    analysis,
+function renderRecommendationPage(
+    data,
     routes
 ) {
 
-    let selectedIndex =
-        Number.isInteger(
-            analysis.recommended_route_index
-        )
-            ? analysis.recommended_route_index
-            : 0;
+    const recommended =
+        getRecommendedRoute(
+            data,
+            routes
+        );
 
 
-    if (
-        selectedIndex < 0 ||
-        selectedIndex >= routes.length
-    ) {
-        selectedIndex = 0;
-    }
+    const selectedIndex =
+        getRecommendedIndex(
+            data,
+            routes,
+            recommended
+        );
 
 
-    const route =
-        routes[selectedIndex];
+    if (!recommended) {
 
+        showRecommendationEmptyState(
+            "No recommended route is available."
+        );
 
-    if (!route) {
         return;
     }
 
 
+    /*
+     * Save selected route.
+     */
+
     localStorage.setItem(
         STORAGE_SELECTED_ROUTE,
-        JSON.stringify(route)
+        JSON.stringify(
+            {
+                ...recommended,
+                coordinates:
+                    getRouteCoordinates(
+                        recommended
+                    )
+            }
+        )
     );
+
+
+    /*
+     * Journey information.
+     */
+
+    renderJourney(
+        data
+    );
+
+
+    /*
+     * Main recommended route.
+     */
+
+    renderRecommendedRoute(
+        data,
+        recommended
+    );
+
+
+    /*
+     * Route comparison cards.
+     */
+
+    renderRouteComparison(
+        data,
+        routes,
+        selectedIndex
+    );
+
+
+    /*
+     * AI explanation.
+     */
+
+    renderAIExplanation(
+        data,
+        recommended
+    );
+
+
+    /*
+     * Navigation button.
+     */
+
+    setupStartNavigation(
+        recommended
+    );
+}
+
+
+/* =========================================================
+   JOURNEY
+   ========================================================= */
+
+function renderJourney(data) {
+
+    if (!data) {
+        return;
+    }
+
+
+    const source =
+        data.source;
+
+
+    const destination =
+        data.destination;
+
+
+    let sourceName =
+        "";
+
+
+    let destinationName =
+        "";
+
+
+    if (
+        source &&
+        typeof source === "object"
+    ) {
+
+        sourceName =
+            source.name ||
+            source.display_name ||
+            source.displayName ||
+            "";
+
+    } else {
+
+        sourceName =
+            source ||
+            "";
+    }
+
+
+    if (
+        destination &&
+        typeof destination === "object"
+    ) {
+
+        destinationName =
+            destination.name ||
+            destination.display_name ||
+            destination.displayName ||
+            "";
+
+    } else {
+
+        destinationName =
+            destination ||
+            "";
+    }
+
+
+    setText(
+        "journeySource",
+        sourceName
+    );
+
+
+    setText(
+        "journeyDestination",
+        destinationName
+    );
+
+
+    if (
+        sourceName &&
+        destinationName
+    ) {
+
+        setText(
+            "routeSummary",
+            `Comparing routes from ${sourceName} to ${destinationName}.`
+        );
+    }
+}
+
+
+/* =========================================================
+   RECOMMENDED ROUTE CARD
+   ========================================================= */
+
+function renderRecommendedRoute(
+    data,
+    route
+) {
+
+    const health =
+        getRouteHealth(
+            route
+        );
+
+
+    const condition =
+        getConditionLabel(
+            getRouteCondition(
+                route
+            )
+        );
+
+
+    const distance =
+        getRouteDistance(
+            route
+        );
+
+
+    const time =
+        getRouteTime(
+            route
+        );
+
+
+    const score =
+        getRouteScore(
+            route
+        );
 
 
     setText(
         "recommendedName",
         route.name ||
-        `Route ${selectedIndex + 1}`
+        "Recommended Route"
+    );
+
+
+    setText(
+        "recommendedHealth",
+        health === null
+            ? "N/A"
+            : Math.round(health)
+    );
+
+
+    setText(
+        "recommendedCondition",
+        condition
     );
 
 
     setText(
         "recommendedDistance",
         formatDistance(
-            route.distance
+            distance
         )
     );
 
@@ -1049,72 +2041,80 @@ function renderRecommendation(
     setText(
         "recommendedTime",
         formatTime(
-            route.travel_time
+            time
         )
     );
 
 
     setText(
-        "recommendedHealth",
-        route.road_health != null
-            ? `${Number(route.road_health).toFixed(0)}%`
-            : "--"
+        "recommendedScore",
+        score.toFixed(1)
+    );
+
+
+    /*
+     * Metrics
+     */
+
+    setText(
+        "metricHealth",
+        health === null
+            ? "N/A"
+            : `${Math.round(health)}/100`
     );
 
 
     setText(
-        "recommendedScore",
-        route.score != null
-            ? Number(route.score).toFixed(1)
-            : "--"
+        "metricTime",
+        formatTime(
+            time
+        )
     );
 
 
-    const condition =
-        document.getElementById(
-            "recommendedCondition"
+    const coverage =
+        getRouteCoverage(
+            route,
+            data
         );
 
 
-    if (condition) {
+    setText(
+        "metricCoverage",
+        coverage === null
+            ? "N/A"
+            : `${coverage.toFixed(1)}%`
+    );
 
-        condition.textContent =
-            getConditionLabel(
-                route.condition
-            );
-    }
+
+    const segments =
+        getRouteSegments(
+            route
+        );
+
+
+    setText(
+        "metricSegments",
+        segments > 0
+            ? segments
+            : "N/A"
+    );
 
 
     const reason =
-        document.getElementById(
-            "recommendationReason"
+        route.recommendation_reason ||
+        route.reason ||
+        data.recommendation_reason ||
+        data.recommendationReason ||
+        getRecommendationReason(
+            route,
+            data
         );
 
 
-    if (reason) {
-
-        reason.textContent =
-            getRecommendationReason(
-                route,
-                analysis
-            );
-    }
-
-
-    renderRouteComparison(
-        routes,
-        selectedIndex
-    );
-
-
-    renderAIExplanation(
-        analysis,
-        route
-    );
-
-
-    setupStartNavigation(
-        route
+    setText(
+        "recommendationReason",
+        reason
     );
 }
 
@@ -1125,52 +2125,55 @@ function renderRecommendation(
 
 function getRecommendationReason(
     route,
-    analysis
+    data
 ) {
 
     const preference =
-        analysis.preference ||
+        data.preference ||
         "balanced";
 
 
     const health =
-        Number(route.road_health);
+        getRouteHealth(
+            route
+        );
 
 
-    if (preference === "road_condition") {
+    if (
+        preference ===
+        "road_condition"
+    ) {
 
         return (
-            "This route provides the strongest "
-            +
-            "road-condition score among the available routes."
+            "This route provides the strongest road-condition score among the available routes."
         );
     }
 
 
-    if (preference === "fastest") {
+    if (
+        preference ===
+        "fastest"
+    ) {
 
         return (
-            "This route is selected because it provides "
-            +
-            "the best travel-time option."
+            "This route is selected because it provides the best travel-time option."
         );
     }
 
 
-    if (Number.isFinite(health) && health >= 75) {
+    if (
+        health !== null &&
+        health >= 75
+    ) {
 
         return (
-            "This route offers a strong balance between "
-            +
-            "road quality, distance and travel time."
+            "This route offers a strong balance between road quality, distance and travel time."
         );
     }
 
 
     return (
-        "This route provides the best overall balance "
-        +
-        "according to RoadQuality's route scoring."
+        "This route provides the best overall balance according to RoadQuality's route scoring."
     );
 }
 
@@ -1180,6 +2183,7 @@ function getRecommendationReason(
    ========================================================= */
 
 function renderRouteComparison(
+    data,
     routes,
     selectedIndex
 ) {
@@ -1190,181 +2194,383 @@ function renderRouteComparison(
         );
 
 
+    const empty =
+        document.getElementById(
+            "routeEmpty"
+        );
+
+
     if (!container) {
+
+        console.error(
+            "RoadQuality: #routeComparison not found."
+        );
+
         return;
     }
 
 
-    container.innerHTML = "";
+    container.innerHTML =
+        "";
 
 
-    const count =
-        document.getElementById(
-            "routeCount"
-        );
+    setText(
+        "routeCount",
+        `${routes.length} ${
+            routes.length === 1
+                ? "route"
+                : "routes"
+        }`
+    );
 
 
-    if (count) {
-        count.textContent =
-            `${routes.length} routes`;
+    if (!routes.length) {
+
+        if (empty) {
+            empty.style.display =
+                "block";
+        }
+
+        return;
     }
 
 
-    routes.slice(0, 3).forEach(
-        (route, index) => {
-
-            const card =
-                document.createElement("div");
-
-
-            card.className =
-                "route-comparison-card";
+    if (empty) {
+        empty.style.display =
+            "none";
+    }
 
 
-            if (index === selectedIndex) {
-                card.classList.add(
-                    "selected"
+    routes
+        .slice(0, 3)
+        .forEach(
+            (route, index) => {
+
+                const card =
+                    createRouteCard(
+                        data,
+                        route,
+                        index,
+                        selectedIndex
+                    );
+
+
+                container.appendChild(
+                    card
                 );
             }
+        );
+}
 
 
-            const health =
-                Number(route.road_health);
+/* =========================================================
+   CREATE ROUTE CARD
+   ========================================================= */
+
+function createRouteCard(
+    data,
+    route,
+    index,
+    selectedIndex
+) {
+
+    const card =
+        document.createElement(
+            "div"
+        );
 
 
-            card.innerHTML = `
-                <div class="route-card-header">
-
-                    <div>
-                        <span class="route-number">
-                            ${index + 1}
-                        </span>
-
-                        <strong>
-                            ${escapeHtml(
-                                route.name ||
-                                `Route ${index + 1}`
-                            )}
-                        </strong>
-                    </div>
-
-                    ${
-                        index === selectedIndex
-                            ? `<span class="recommended-badge">
-                                Recommended
-                               </span>`
-                            : ""
-                    }
-
-                </div>
+    card.className =
+        "rq-route-card";
 
 
-                <div class="route-card-stats">
-
-                    <div>
-                        <span>Distance</span>
-                        <strong>
-                            ${formatDistance(
-                                route.distance
-                            )}
-                        </strong>
-                    </div>
+    const isRecommended =
+        index ===
+        selectedIndex;
 
 
-                    <div>
-                        <span>Time</span>
-                        <strong>
-                            ${formatTime(
-                                route.travel_time
-                            )}
-                        </strong>
-                    </div>
+    if (isRecommended) {
+
+        card.classList.add(
+            "selected"
+        );
+    }
 
 
-                    <div>
-                        <span>Road Health</span>
-                        <strong class="${getHealthClass(health)}">
-                            ${
-                                Number.isFinite(health)
-                                    ? `${health.toFixed(0)}%`
-                                    : "--"
-                            }
-                        </strong>
-                    </div>
+    const color =
+        routeColors[index]
+            ? index === 0
+                ? "green"
+                : index === 1
+                    ? "blue"
+                    : "orange"
+            : "green";
 
 
-                    <div>
-                        <span>Score</span>
-                        <strong>
-                            ${
-                                route.score != null
-                                    ? Number(
-                                        route.score
-                                      ).toFixed(1)
-                                    : "--"
-                            }
-                        </strong>
-                    </div>
-
-                </div>
-            `;
+    const health =
+        getRouteHealth(
+            route
+        );
 
 
-            card.addEventListener(
-                "click",
-                () => {
-
-                    localStorage.setItem(
-                        STORAGE_SELECTED_ROUTE,
-                        JSON.stringify(route)
-                    );
+    const condition =
+        getConditionLabel(
+            getRouteCondition(
+                route
+            )
+        );
 
 
-                    recommendationLayers.forEach(
-                        (layer, layerIndex) => {
+    const distance =
+        getRouteDistance(
+            route
+        );
 
-                            layer.setStyle({
-                                weight:
-                                    layerIndex === index
-                                        ? 8
-                                        : 5,
 
-                                opacity:
-                                    layerIndex === index
-                                        ? 0.95
-                                        : 0.65
-                            });
+    const time =
+        getRouteTime(
+            route
+        );
+
+
+    const score =
+        getRouteScore(
+            route
+        );
+
+
+    const healthText =
+        health === null
+            ? "N/A"
+            : `${Math.round(health)}/100`;
+
+
+    card.innerHTML = `
+
+        <div class="rq-route-card-top">
+
+            <div class="rq-route-card-name">
+
+                <span class="rq-color ${color}">
+                </span>
+
+                <div>
+
+                    <small>
+                        ${
+                            isRecommended
+                                ? "RECOMMENDED"
+                                : "ALTERNATIVE " +
+                                  index
                         }
-                    );
+                    </small>
+
+                    <strong>
+                        ${escapeHtml(
+                            route.name ||
+                            `Route ${index + 1}`
+                        )}
+                    </strong>
+
+                </div>
+
+            </div>
+
+            ${
+                isRecommended
+                    ? `
+                        <span class="rq-card-badge">
+                            BEST
+                        </span>
+                      `
+                    : ""
+            }
+
+        </div>
 
 
-                    document
-                        .querySelectorAll(
-                            ".route-comparison-card"
-                        )
-                        .forEach(
-                            element =>
-                                element.classList.remove(
-                                    "selected"
-                                )
-                        );
+        <div class="rq-route-card-condition">
+
+            <span class="rq-health-dot ${getHealthState(health)}">
+            </span>
+
+            <strong>
+                ${escapeHtml(
+                    condition
+                )}
+            </strong>
+
+            <span>
+                ${healthText}
+            </span>
+
+        </div>
 
 
-                    card.classList.add(
-                        "selected"
-                    );
+        <div class="rq-route-card-stats">
+
+            <div>
+
+                <small>
+                    DISTANCE
+                </small>
+
+                <strong>
+                    ${formatDistance(
+                        distance
+                    )}
+                </strong>
+
+            </div>
 
 
-                    setupStartNavigation(
-                        route
-                    );
-                }
+            <div>
+
+                <small>
+                    TIME
+                </small>
+
+                <strong>
+                    ${formatTime(
+                        time
+                    )}
+                </strong>
+
+            </div>
+
+
+            <div>
+
+                <small>
+                    SCORE
+                </small>
+
+                <strong>
+                    ${score.toFixed(1)}
+                </strong>
+
+            </div>
+
+        </div>
+    `;
+
+
+    card.addEventListener(
+        "click",
+        () => {
+
+            localStorage.setItem(
+                STORAGE_SELECTED_ROUTE,
+                JSON.stringify(
+                    {
+                        ...route,
+                        coordinates:
+                            getRouteCoordinates(
+                                route
+                            )
+                    }
+                )
             );
 
 
-            container.appendChild(card);
+            document
+                .querySelectorAll(
+                    ".rq-route-card"
+                )
+                .forEach(
+                    element => {
+
+                        element.classList.remove(
+                            "selected"
+                        );
+                    }
+                );
+
+
+            card.classList.add(
+                "selected"
+            );
+
+
+            /*
+             * Update recommended panel when
+             * user selects another route.
+             */
+
+            renderRecommendedRoute(
+                data,
+                route
+            );
+
+
+            renderAIExplanation(
+                data,
+                route
+            );
+
+
+            setupStartNavigation(
+                route
+            );
+
+
+            /*
+             * Update route line styles.
+             */
+
+            recommendationLayers.forEach(
+                (layer, layerIndex) => {
+
+                    const selected =
+                        layerIndex ===
+                        index;
+
+
+                    layer.setStyle({
+                        weight:
+                            selected
+                                ? 8
+                                : 5,
+
+                        opacity:
+                            selected
+                                ? 0.95
+                                : 0.65
+                    });
+                }
+            );
         }
     );
+
+
+    return card;
+}
+
+
+/* =========================================================
+   HEALTH STATE
+   ========================================================= */
+
+function getHealthState(
+    health
+) {
+
+    if (health === null) {
+        return "unknown";
+    }
+
+
+    if (health >= 80) {
+        return "good";
+    }
+
+
+    if (health >= 60) {
+        return "moderate";
+    }
+
+
+    return "poor";
 }
 
 
@@ -1373,7 +2579,7 @@ function renderRouteComparison(
    ========================================================= */
 
 function renderAIExplanation(
-    analysis,
+    data,
     route
 ) {
 
@@ -1388,78 +2594,56 @@ function renderAIExplanation(
     }
 
 
+    const explicit =
+        route.recommendation_reason ||
+        route.reason ||
+        data.recommendation_reason ||
+        data.recommendationReason;
+
+
+    if (explicit) {
+
+        element.textContent =
+            explicit;
+
+        return;
+    }
+
+
     const aiSegments =
-        Number(
+        numberValue(
             route.ai_segments ??
-            analysis.ai_segments ??
+            route.ai_segment_count ??
+            data.ai_segments,
             0
         );
 
 
     const osmSegments =
-        Number(
+        numberValue(
             route.osm_segments ??
-            analysis.osm_segments ??
+            route.osm_segment_count ??
+            data.osm_segments,
             0
         );
 
 
     const coverage =
-        Number(
-            route.ai_coverage ??
-            analysis.ai_coverage ??
-            0
+        getRouteCoverage(
+            route,
+            data
         );
 
 
-    element.innerHTML = `
-        <div class="ai-explanation-content">
-
-            <div class="ai-explanation-icon">
-                ✦
-            </div>
-
-            <div>
-
-                <strong>
-                    AI Route Analysis
-                </strong>
-
-                <p>
-                    RoadQuality evaluated this route
-                    using road-condition information
-                    and available map data.
-                </p>
-
-                <div class="ai-metrics">
-
-                    <span>
-                        AI segments:
-                        <b>${aiSegments}</b>
-                    </span>
-
-                    <span>
-                        OSM segments:
-                        <b>${osmSegments}</b>
-                    </span>
-
-                    <span>
-                        Coverage:
-                        <b>
-                            ${
-                                Number.isFinite(coverage)
-                                    ? `${coverage.toFixed(0)}%`
-                                    : "--"
-                            }
-                        </b>
-                    </span>
-
-                </div>
-
-            </div>
-
-        </div>
-    `;
+    element.textContent =
+        `RoadQuality evaluated road condition, distance, travel time and route score to select the most suitable route. ` +
+        `AI segments: ${aiSegments}. ` +
+        `OSM segments: ${osmSegments}. ` +
+        `Coverage: ${
+            coverage === null
+                ? "N/A"
+                : coverage.toFixed(1) + "%"
+        }.`;
 }
 
 
@@ -1483,10 +2667,13 @@ function setupStartNavigation(
 
 
     /*
-     * Remove previous listeners safely.
+     * Clone to remove previous listeners.
      */
+
     const newButton =
-        button.cloneNode(true);
+        button.cloneNode(
+            true
+        );
 
 
     button.parentNode.replaceChild(
@@ -1499,48 +2686,13 @@ function setupStartNavigation(
         "click",
         () => {
 
-            const analysisRaw =
-                localStorage.getItem(
-                    STORAGE_ANALYSIS
-                );
-
-
-            if (!analysisRaw) {
-
-                showError(
-                    "Route data is unavailable."
-                );
-
-                return;
-            }
-
-
-            let analysis;
-
-            try {
-                analysis =
-                    JSON.parse(
-                        analysisRaw
-                    );
-            } catch {
-
-                showError(
-                    "Unable to read route data."
-                );
-
-                return;
-            }
-
-
-            /*
-             * Make sure coordinates are definitely
-             * attached to the selected route.
-             */
             const selectedRoute = {
                 ...route,
 
                 coordinates:
-                    getRouteCoordinates(route)
+                    getRouteCoordinates(
+                        route
+                    )
             };
 
 
@@ -1560,21 +2712,49 @@ function setupStartNavigation(
 
 
 /* =========================================================
-   TEXT HELPER
+   EMPTY RECOMMENDATION STATE
    ========================================================= */
 
-function setText(
-    id,
-    value
+function showRecommendationEmptyState(
+    message
 ) {
 
-    const element =
-        document.getElementById(id);
+    const container =
+        document.getElementById(
+            "routeComparison"
+        );
 
-    if (element) {
-        element.textContent =
-            value;
+
+    const empty =
+        document.getElementById(
+            "routeEmpty"
+        );
+
+
+    if (container) {
+
+        container.innerHTML = `
+            <div class="rq-empty">
+                ${escapeHtml(message)}
+            </div>
+        `;
     }
+
+
+    if (empty) {
+
+        empty.style.display =
+            "block";
+
+        empty.textContent =
+            message;
+    }
+
+
+    console.warn(
+        "RoadQuality recommendation:",
+        message
+    );
 }
 
 
@@ -1599,10 +2779,8 @@ function initializeNavigationPage() {
 
 
     /*
-     * Navigation page is implemented in
+     * Navigation GPS logic remains in
      * navigation.html.
-     *
-     * app.js does not duplicate its GPS logic.
      */
 }
 
@@ -1618,6 +2796,7 @@ document.addEventListener(
         /*
          * Planner
          */
+
         if (
             document.getElementById(
                 "routeForm"
@@ -1628,13 +2807,17 @@ document.addEventListener(
                 "source"
             );
 
+
             setupLocationAutocomplete(
                 "destination"
             );
 
+
             setupLocationButton();
 
+
             initializePlannerMap();
+
 
             setupRouteForm();
         }
@@ -1643,6 +2826,7 @@ document.addEventListener(
         /*
          * Recommendation
          */
+
         if (
             document.getElementById(
                 "recommendationMap"
@@ -1656,6 +2840,7 @@ document.addEventListener(
         /*
          * Navigation
          */
+
         if (
             document.getElementById(
                 "navigationMap"
