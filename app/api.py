@@ -560,7 +560,7 @@ def get_road_network(
 
                 node_id = coordinate_nodes.get(key)
                 if node_id is None:
-                    node_id = f"osrm_{len(coordinate_nodes) + 1}"
+                    node_id = len(coordinate_nodes) + 1
                     coordinate_nodes[key] = node_id
                     G.add_node(
                         node_id,
