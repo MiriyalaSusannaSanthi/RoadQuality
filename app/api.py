@@ -57,13 +57,18 @@ def handle_preflight():
 # ============================================================
 
 try:
+    # Render-safe OSM configuration
+    ox.settings.requests_timeout = 90
 
-    ox.settings.requests_timeout = 30
+    # Use an alternative Overpass instance because
+    # overpass-api.de is refusing connections from Render.
+    ox.settings.overpass_url = (
+        "https://overpass.private.coffee/api"
+    )
 
     ox.settings.use_cache = True
 
 except Exception:
-
     pass
 
 
@@ -435,19 +440,7 @@ def get_road_network(
     # ADAPTIVE CORRIDOR WIDTH
     # --------------------------------------------------------
 
-    buffer_km = max(
-
-        2.0,
-
-        min(
-
-            10.0,
-
-            straight_distance_km * 0.05
-
-        )
-
-    )
+    buffer_km = 2.0
 
 
     cache_key = make_graph_cache_key(
