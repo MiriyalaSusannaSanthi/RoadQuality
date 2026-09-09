@@ -239,6 +239,25 @@ def geocode_place(
         flush=True
     )
 
+    # Demo-safe coordinate fallback for the primary presentation route.
+    # This avoids public Nominatim rate limits (HTTP 429) from breaking
+    # the live Android demo. Nominatim is still used for other locations.
+    place_key = str(place).strip().lower()
+    demo_coordinates = {
+        "vijayawada, vijayawada (urban), ntr, andhra pradesh, 520001, india": (16.511531, 80.616047),
+        "vijayawada": (16.511531, 80.616047),
+        "kanchikacherla, ntr, andhra pradesh, india": (16.663267, 80.375153),
+        "kanchikacherla": (16.663267, 80.375153),
+    }
+
+    if place_key in demo_coordinates:
+        latitude, longitude = demo_coordinates[place_key]
+        print(
+            f"Using cached demo coordinates: {latitude:.6f}, {longitude:.6f}",
+            flush=True
+        )
+        return latitude, longitude
+
 
     url = (
         "https://nominatim.openstreetmap.org/search"
