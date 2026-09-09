@@ -417,20 +417,20 @@ def get_road_network(
     request_id,
     request_start
 ):
-
     """
-    Download the requested OSM road corridor in small overlapping
-    chunks instead of sending one large Overpass query.
+    Load a road network for the requested corridor.
 
-    The previous implementation requested the complete source ->
-    destination corridor in a single Overpass call. On Render this
-    could sit for 90 seconds and then repeat the same large request
-    with the bbox fallback.
+    Primary source:
+        OSM/Overpass in small overlapping chunks.
 
-    This implementation keeps the existing 2 km corridor width and
-    graph-cache behavior, but divides long routes into manageable
-    overlapping chunks. It also tries two Overpass instances per
-    chunk so one slow public instance does not block the whole request.
+    Render-safe fallback:
+        OSRM public routing service.  If Overpass is unreachable from
+        Render, OSRM supplies route geometries which are converted into
+        a NetworkX MultiDiGraph with the same node/edge conventions
+        expected by the existing route generator.
+
+    The route-health and recommendation modules are intentionally not
+    changed by this fallback.
     """
 
     straight_distance_km = haversine_km(
@@ -440,7 +440,6 @@ def get_road_network(
         destination_lon
     )
 
-    # Keep the existing corridor width used by the project.
     buffer_km = 2.0
 
     cache_key = make_graph_cache_key(
@@ -451,18 +450,12 @@ def get_road_network(
         buffer_km
     )
 
-    # --------------------------------------------------------
-    # CACHE
-    # --------------------------------------------------------
-
     if cache_key in GRAPH_CACHE:
-
         print_step(
             request_id,
             request_start,
             "STEP 5A - Using cached OSM road corridor"
         )
-
         return GRAPH_CACHE[cache_key]
 
     print_step(
@@ -485,12 +478,7 @@ def get_road_network(
 
     network_start = time.perf_counter()
 
-    # networkx is used only here to merge the downloaded OSM chunks.
     import networkx as nx
-
-    # --------------------------------------------------------
-    # CONVERT KM TO DEGREES
-    # --------------------------------------------------------
 
     buffer_lat = buffer_km / 111.0
 
@@ -505,10 +493,6 @@ def get_road_network(
 
     buffer_lon = buffer_km / (111.0 * cos_lat)
 
-    # --------------------------------------------------------
-    # BUILD SOURCE -> DESTINATION LINE
-    # --------------------------------------------------------
-
     route_line = LineString([
         (
             float(source_lon),
@@ -520,14 +504,6 @@ def get_road_network(
         )
     ])
 
-    # --------------------------------------------------------
-    # CHUNK THE LONG CORRIDOR
-    # --------------------------------------------------------
-    # A maximum chunk length of 20 km keeps each Overpass request
-    # considerably smaller while retaining enough road context.
-    # Adjacent chunks overlap because every chunk gets the same
-    # 2 km corridor buffer.
-
     MAX_CHUNK_KM = 20.0
 
     chunk_count = max(
@@ -535,9 +511,6 @@ def get_road_network(
         int(math.ceil(straight_distance_km / MAX_CHUNK_KM))
     )
 
-    # Avoid creating an excessive number of Overpass requests for
-    # very long journeys. For the normal project/demo routes this
-    # limit is not reached.
     MAX_CHUNKS = 24
     chunk_count = min(chunk_count, MAX_CHUNKS)
 
@@ -546,24 +519,17 @@ def get_road_network(
         flush=True
     )
 
-    # These are tried in order. The current endpoint remains first,
-    # followed by another public Overpass instance as a fallback.
     overpass_endpoints = [
         "https://overpass.private.coffee/api",
         "https://overpass.kumi.systems/api/interpreter"
     ]
 
-    # Save the configured endpoint so the rest of the application is
-    # left in the same state after this function completes.
     original_overpass_url = getattr(
         ox.settings,
         "overpass_url",
         overpass_endpoints[0]
     )
 
-    # Use a shorter per-query timeout. A failed chunk should move to
-    # the next endpoint rather than freezing the Android request for
-    # several minutes.
     try:
         ox.settings.requests_timeout = 35
     except Exception:
@@ -574,10 +540,6 @@ def get_road_network(
 
     for chunk_index in range(chunk_count):
 
-        # --------------------------------------------------------
-        # CHUNK ENDPOINTS
-        # --------------------------------------------------------
-
         start_fraction = chunk_index / chunk_count
         end_fraction = (chunk_index + 1) / chunk_count
 
@@ -585,6 +547,7 @@ def get_road_network(
             start_fraction,
             normalized=True
         )
+
         chunk_end = route_line.interpolate(
             end_fraction,
             normalized=True
@@ -600,10 +563,6 @@ def get_road_network(
         )
 
         minx, miny, maxx, maxy = chunk_polygon.bounds
-
-        # --------------------------------------------------------
-        # DOWNLOAD THIS CHUNK
-        # --------------------------------------------------------
 
         print(
             f"\nOSM chunk {chunk_index + 1}/{chunk_count}: "
@@ -659,16 +618,8 @@ def get_road_network(
                     flush=True
                 )
 
-        # --------------------------------------------------------
-        # SMALL BBOX FALLBACK FOR THIS CHUNK ONLY
-        # --------------------------------------------------------
-
         if not chunk_loaded:
-
             try:
-                # Use a small bbox around only this chunk. This is
-                # intentionally NOT the full source -> destination
-                # bbox that caused the earlier long wait.
                 print(
                     f"OSM chunk {chunk_index + 1}/{chunk_count}: "
                     f"trying compact bbox fallback...",
@@ -695,7 +646,8 @@ def get_road_network(
                         print(
                             f"OSM chunk {chunk_index + 1}/{chunk_count}: "
                             f"bbox endpoint "
-                            f"{endpoint_index + 1}/{len(overpass_endpoints)}",
+                            f"{endpoint_index + 1}/"
+                            f"{len(overpass_endpoints)}",
                             flush=True
                         )
 
@@ -710,7 +662,10 @@ def get_road_network(
                             simplify=True
                         )
 
-                        if G_chunk is None or len(G_chunk.nodes) == 0:
+                        if (
+                            G_chunk is None
+                            or len(G_chunk.nodes) == 0
+                        ):
                             raise RuntimeError(
                                 "Overpass bbox returned an empty graph."
                             )
@@ -729,6 +684,7 @@ def get_road_network(
 
                     except Exception as bbox_error:
                         last_chunk_error = bbox_error
+
                         print(
                             f"OSM chunk {chunk_index + 1}/{chunk_count}: "
                             f"bbox endpoint failed: {bbox_error}",
@@ -739,7 +695,6 @@ def get_road_network(
                 last_chunk_error = fallback_error
 
         if not chunk_loaded:
-
             failed_chunks.append(
                 (
                     chunk_index + 1,
@@ -753,7 +708,6 @@ def get_road_network(
                 flush=True
             )
 
-    # Restore the original configured endpoint.
     try:
         ox.settings.overpass_url = original_overpass_url
         ox.settings.requests_timeout = 90
@@ -761,16 +715,220 @@ def get_road_network(
         pass
 
     # --------------------------------------------------------
-    # COMBINE SUCCESSFUL CHUNKS
+    # RENDER-SAFE ROUTING FALLBACK
+    # --------------------------------------------------------
+    # Render may be unable to reach public Overpass servers even
+    # though Nominatim is reachable.  Do not fail /analyze after
+    # several minutes of Overpass timeouts.  Use OSRM to obtain
+    # driving route geometry and convert the returned geometry into
+    # the graph format used by route_generator.py.
     # --------------------------------------------------------
 
     if not graphs:
-        raise RuntimeError(
-            "OSM road network download failed: no corridor chunks "
-            "could be downloaded from the available Overpass servers."
+        print(
+            "\nOSM/Overpass unavailable from this deployment.",
+            flush=True
         )
 
-    if failed_chunks:
+        print(
+            "Activating Render-safe OSRM routing fallback...",
+            flush=True
+        )
+
+        osrm_url = (
+            "https://router.project-osrm.org/route/v1/driving/"
+            f"{float(source_lon):.6f},{float(source_lat):.6f};"
+            f"{float(destination_lon):.6f},{float(destination_lat):.6f}"
+        )
+
+        osrm_params = {
+            "alternatives": "true",
+            "overview": "full",
+            "geometries": "geojson",
+            "steps": "false"
+        }
+
+        try:
+            osrm_response = HTTP_SESSION.get(
+                osrm_url,
+                params=osrm_params,
+                timeout=20
+            )
+
+            print(
+                f"OSRM HTTP status: {osrm_response.status_code}",
+                flush=True
+            )
+
+            osrm_response.raise_for_status()
+
+            osrm_data = osrm_response.json()
+
+            if osrm_data.get("code") != "Ok":
+                raise RuntimeError(
+                    "OSRM returned an error: "
+                    f"{osrm_data.get('message', osrm_data.get('code'))}"
+                )
+
+            osrm_routes = osrm_data.get("routes") or []
+
+            if not osrm_routes:
+                raise RuntimeError(
+                    "OSRM returned no driving routes."
+                )
+
+            G_fallback = nx.MultiDiGraph()
+            G_fallback.graph["crs"] = "EPSG:4326"
+
+            # Merge identical/near-identical coordinates from OSRM
+            # alternatives so the existing route generator can see
+            # multiple branches between the same endpoints.
+            coordinate_nodes = {}
+
+            for route_number, osrm_route in enumerate(
+                osrm_routes[:3],
+                start=1
+            ):
+
+                geometry = (
+                    osrm_route.get("geometry") or {}
+                )
+
+                coordinates = (
+                    geometry.get("coordinates") or []
+                )
+
+                if len(coordinates) < 2:
+                    continue
+
+                route_distance_m = float(
+                    osrm_route.get("distance", 0.0) or 0.0
+                )
+
+                route_duration_s = float(
+                    osrm_route.get("duration", 0.0) or 0.0
+                )
+
+                previous_node = None
+
+                for point_index, coordinate in enumerate(
+                    coordinates
+                ):
+
+                    if (
+                        not isinstance(coordinate, (list, tuple))
+                        or len(coordinate) < 2
+                    ):
+                        continue
+
+                    lon = float(coordinate[0])
+                    lat = float(coordinate[1])
+
+                    coordinate_key = (
+                        round(lon, 6),
+                        round(lat, 6)
+                    )
+
+                    node_id = coordinate_nodes.get(
+                        coordinate_key
+                    )
+
+                    if node_id is None:
+                        node_id = (
+                            f"osrm_{len(coordinate_nodes) + 1}"
+                        )
+
+                        coordinate_nodes[coordinate_key] = node_id
+
+                        G_fallback.add_node(
+                            node_id,
+                            x=lon,
+                            y=lat,
+                            osmid=node_id
+                        )
+
+                    if previous_node is not None:
+
+                        previous_data = G_fallback.nodes[
+                            previous_node
+                        ]
+
+                        segment_distance_km = haversine_km(
+                            previous_data["y"],
+                            previous_data["x"],
+                            lat,
+                            lon
+                        )
+
+                        if segment_distance_km <= 0:
+                            continue
+
+                        segment_distance_m = (
+                            segment_distance_km * 1000.0
+                        )
+
+                        if route_distance_m > 0:
+                            segment_fraction = (
+                                segment_distance_m
+                                / route_distance_m
+                            )
+                        else:
+                            segment_fraction = 0.0
+
+                        segment_time_s = (
+                            route_duration_s
+                            * segment_fraction
+                        )
+
+                        edge_attributes = {
+                            "length": segment_distance_m,
+                            "travel_time": segment_time_s,
+                            "highway": "primary"
+                        }
+
+                        G_fallback.add_edge(
+                            previous_node,
+                            node_id,
+                            **edge_attributes
+                        )
+
+                        # Keep the graph routable in both directions.
+                        G_fallback.add_edge(
+                            node_id,
+                            previous_node,
+                            **edge_attributes
+                        )
+
+                    previous_node = node_id
+
+            if len(G_fallback.nodes) < 2:
+                raise RuntimeError(
+                    "OSRM fallback produced an empty graph."
+                )
+
+            graphs = [G_fallback]
+
+            print(
+                f"OSRM fallback loaded "
+                f"{len(G_fallback.nodes)} nodes / "
+                f"{len(G_fallback.edges)} edges "
+                f"from {min(3, len(osrm_routes))} available route(s).",
+                flush=True
+            )
+
+        except Exception as osrm_error:
+            print(
+                f"OSRM fallback failed: {osrm_error}",
+                flush=True
+            )
+
+            raise RuntimeError(
+                "Unable to load a road network. "
+                "Overpass is unreachable from the deployed server "
+                "and the OSRM fallback also failed."
+            ) from osrm_error
+
+    elif failed_chunks:
         failed_numbers = ", ".join(
             str(item[0]) for item in failed_chunks
         )
@@ -782,7 +940,7 @@ def get_road_network(
         )
 
     print(
-        f"Combining {len(graphs)} OSM graph chunk(s)...",
+        f"Combining {len(graphs)} road graph source(s)...",
         flush=True
     )
 
@@ -815,16 +973,10 @@ def get_road_network(
             "OSM returned an empty road network."
         )
 
-    # --------------------------------------------------------
-    # CACHE GRAPH
-    # --------------------------------------------------------
-
     if len(GRAPH_CACHE) >= MAX_GRAPH_CACHE_SIZE:
-
         oldest_key = next(
             iter(GRAPH_CACHE)
         )
-
         del GRAPH_CACHE[oldest_key]
 
     GRAPH_CACHE[cache_key] = G
