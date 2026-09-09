@@ -208,215 +208,331 @@ def haversine_km(
 # DIRECT NOMINATIM GEOCODING
 # ============================================================
 
+# ============================================================
+# DYNAMIC GEOCODING
+# ============================================================
+
 def geocode_place(
     place,
     request_id=None,
     request_start=None
 ):
     """
-    Controlled Nominatim geocoder.
+    Dynamic geocoder.
 
-    We intentionally do NOT use ox.geocode() here because
-    OSMnx can retry internally for a long time when Nominatim
-    responds slowly or with an error.
+    Primary:
+        Nominatim / OpenStreetMap
 
-    This function has:
-        - explicit timeout
-        - explicit User-Agent
-        - limited retry count
-        - India country restriction
+    Fallback:
+        ArcGIS World Geocoding
+
+    No location is hardcoded.
     """
 
     if not place:
-
         raise ValueError(
             "Location cannot be empty."
         )
 
+    place = str(place).strip()
+
+    if not place:
+        raise ValueError(
+            "Location cannot be empty."
+        )
 
     print(
         f"Geocoding location: {place}",
         flush=True
     )
 
-    # Demo-safe coordinate fallback for the primary presentation route.
-    # This avoids public Nominatim rate limits (HTTP 429) from breaking
-    # the live Android demo. Nominatim is still used for other locations.
-    place_key = str(place).strip().lower()
-    demo_coordinates = {
-        "vijayawada, vijayawada (urban), ntr, andhra pradesh, 520001, india": (16.511531, 80.616047),
-        "vijayawada": (16.511531, 80.616047),
-        "kanchikacherla, ntr, andhra pradesh, india": (16.663267, 80.375153),
-        "kanchikacherla": (16.663267, 80.375153),
-    }
+    # ========================================================
+    # 1. NOMINATIM
+    # ========================================================
 
-    if place_key in demo_coordinates:
-        latitude, longitude = demo_coordinates[place_key]
-        print(
-            f"Using cached demo coordinates: {latitude:.6f}, {longitude:.6f}",
-            flush=True
-        )
-        return latitude, longitude
-
-
-    url = (
+    nominatim_url = (
         "https://nominatim.openstreetmap.org/search"
     )
 
-
-    params = {
-
-        "q":
-            place,
-
-        "format":
-            "json",
-
-        "addressdetails":
-            1,
-
-        "limit":
-            1,
-
-        "countrycodes":
-            "in"
-
+    nominatim_params = {
+        "q": place,
+        "format": "json",
+        "addressdetails": 1,
+        "limit": 1,
+        "countrycodes": "in"
     }
-
 
     last_error = None
 
+    try:
 
-    for attempt in range(1, 3):
+        print(
+            "Trying Nominatim...",
+            flush=True
+        )
 
-        try:
+        response = HTTP_SESSION.get(
+            nominatim_url,
+            params=nominatim_params,
+            timeout=8
+        )
 
-            print(
-                f"Nominatim attempt {attempt}/2...",
-                flush=True
-            )
+        print(
+            f"Nominatim HTTP status: "
+            f"{response.status_code}",
+            flush=True
+        )
 
-
-            response = HTTP_SESSION.get(
-
-                url,
-
-                params=params,
-
-                timeout=10
-
-            )
-
-
-            print(
-                f"Nominatim HTTP status: "
-                f"{response.status_code}",
-                flush=True
-            )
-
-
-            response.raise_for_status()
-
+        if response.status_code == 200:
 
             results = response.json()
 
+            if results:
 
-            if not results:
+                first = results[0]
 
-                raise ValueError(
-                    f"Location not found: {place}"
+                latitude = float(
+                    first["lat"]
                 )
 
-
-            first = results[0]
-
-
-            latitude = float(
-                first["lat"]
-            )
-
-
-            longitude = float(
-                first["lon"]
-            )
-
-
-            display_name = (
-                first.get(
-                    "display_name",
-                    place
+                longitude = float(
+                    first["lon"]
                 )
-                or place
+
+                display_name = (
+                    first.get(
+                        "display_name",
+                        place
+                    )
+                    or place
+                )
+
+                print(
+                    "Geocoded successfully using Nominatim:",
+                    display_name,
+                    flush=True
+                )
+
+                print(
+                    f"Coordinates: "
+                    f"{latitude:.6f}, "
+                    f"{longitude:.6f}",
+                    flush=True
+                )
+
+                return (
+                    latitude,
+                    longitude
+                )
+
+            last_error = ValueError(
+                f"Nominatim could not find '{place}'."
             )
 
+        elif response.status_code == 429:
+
+            last_error = RuntimeError(
+                "Nominatim rate limit exceeded (HTTP 429)."
+            )
 
             print(
-                f"Geocoded successfully: "
-                f"{display_name}",
+                "Nominatim rate limit reached. "
+                "Trying fallback geocoder...",
                 flush=True
             )
 
+        else:
+
+            last_error = RuntimeError(
+                f"Nominatim returned HTTP "
+                f"{response.status_code}."
+            )
 
             print(
-                f"Coordinates: "
-                f"{latitude:.6f}, "
-                f"{longitude:.6f}",
+                f"Nominatim unavailable: "
+                f"HTTP {response.status_code}",
                 flush=True
             )
 
+    except requests.Timeout as e:
 
-            return (
-                latitude,
-                longitude
+        last_error = e
+
+        print(
+            "Nominatim timed out. "
+            "Trying fallback geocoder...",
+            flush=True
+        )
+
+    except requests.RequestException as e:
+
+        last_error = e
+
+        print(
+            f"Nominatim request failed: {e}",
+            flush=True
+        )
+
+    except (
+        ValueError,
+        KeyError,
+        TypeError
+    ) as e:
+
+        last_error = e
+
+        print(
+            f"Nominatim response error: {e}",
+            flush=True
+        )
+
+    # ========================================================
+    # 2. ARC GIS FALLBACK
+    # ========================================================
+
+    print(
+        "Trying ArcGIS World Geocoding...",
+        flush=True
+    )
+
+    arcgis_url = (
+        "https://geocode.arcgis.com/"
+        "arcgis/rest/services/World/"
+        "GeocodeServer/findAddressCandidates"
+    )
+
+    arcgis_params = {
+        "SingleLine": place,
+        "countryCode": "IND",
+        "maxLocations": 1,
+        "outFields": "*",
+        "f": "json"
+    }
+
+    try:
+
+        response = HTTP_SESSION.get(
+            arcgis_url,
+            params=arcgis_params,
+            timeout=10
+        )
+
+        print(
+            f"ArcGIS HTTP status: "
+            f"{response.status_code}",
+            flush=True
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        candidates = (
+            data.get("candidates")
+            or []
+        )
+
+        if candidates:
+
+            candidate = candidates[0]
+
+            location = (
+                candidate.get("location")
+                or {}
             )
 
+            latitude = location.get("y")
+            longitude = location.get("x")
 
-        except requests.Timeout as e:
+            if (
+                latitude is not None
+                and longitude is not None
+            ):
 
-            last_error = e
+                latitude = float(
+                    latitude
+                )
 
-            print(
-                f"Nominatim timeout on attempt "
-                f"{attempt}.",
-                flush=True
-            )
+                longitude = float(
+                    longitude
+                )
 
+                address = (
+                    candidate.get(
+                        "address",
+                        place
+                    )
+                    or place
+                )
 
-        except requests.RequestException as e:
+                score = candidate.get(
+                    "score"
+                )
 
-            last_error = e
+                print(
+                    "Geocoded successfully using ArcGIS:",
+                    address,
+                    flush=True
+                )
 
-            print(
-                f"Nominatim request error: "
-                f"{e}",
-                flush=True
-            )
+                if score is not None:
 
+                    print(
+                        f"ArcGIS match score: "
+                        f"{float(score):.2f}",
+                        flush=True
+                    )
 
-        except (
-            ValueError,
-            KeyError,
-            TypeError
-        ) as e:
+                print(
+                    f"Coordinates: "
+                    f"{latitude:.6f}, "
+                    f"{longitude:.6f}",
+                    flush=True
+                )
 
-            last_error = e
+                return (
+                    latitude,
+                    longitude
+                )
 
-            print(
-                f"Geocoding data error: "
-                f"{e}",
-                flush=True
-            )
+        raise ValueError(
+            f"ArcGIS could not find '{place}'."
+        )
 
+    except requests.Timeout as e:
 
-        if attempt < 2:
+        print(
+            f"ArcGIS geocoding timeout: {e}",
+            flush=True
+        )
 
-            print(
-                "Waiting briefly before retry...",
-                flush=True
-            )
+        last_error = e
 
-            time.sleep(1)
+    except requests.RequestException as e:
 
+        print(
+            f"ArcGIS geocoding request error: {e}",
+            flush=True
+        )
+
+        last_error = e
+
+    except (
+        ValueError,
+        KeyError,
+        TypeError
+    ) as e:
+
+        print(
+            f"ArcGIS geocoding data error: {e}",
+            flush=True
+        )
+
+        last_error = e
+
+    # ========================================================
+    # 3. BOTH GEOCODERS FAILED
+    # ========================================================
 
     raise RuntimeError(
         f"Could not geocode '{place}'. "
