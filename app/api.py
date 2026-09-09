@@ -107,21 +107,6 @@ AI_POINTS_CACHE = None
 
 
 # ============================================================
-# GEOCODING CACHE / FALLBACK SETTINGS
-# ============================================================
-
-# Keep successful geocoding results in memory so repeated Android
-# requests do not repeatedly hit public geocoding services.
-GEOCODE_CACHE = {}
-
-MAX_GEOCODE_CACHE_SIZE = 100
-
-# Photon is an OpenStreetMap-based geocoder used as a fallback when
-# Nominatim is rate-limited or unavailable.
-PHOTON_GEOCODE_URL = "https://photon.komoot.io/api/"
-
-
-# ============================================================
 # HELPER - TIMING
 # ============================================================
 
@@ -223,436 +208,201 @@ def haversine_km(
 # DIRECT NOMINATIM GEOCODING
 # ============================================================
 
-def _cache_geocode_result(place, latitude, longitude):
-    """Store a successful geocoding result with a bounded cache."""
-    key = str(place).strip().lower()
-
-    if not key:
-        return
-
-    if len(GEOCODE_CACHE) >= MAX_GEOCODE_CACHE_SIZE:
-        oldest_key = next(iter(GEOCODE_CACHE))
-        del GEOCODE_CACHE[oldest_key]
-
-    GEOCODE_CACHE[key] = (
-        float(latitude),
-        float(longitude)
-    )
-
-
-def _photon_display_name(properties, fallback):
-    """Build a readable place name from Photon properties."""
-    if not isinstance(properties, dict):
-        return fallback
-
-    parts = []
-
-    name = properties.get("name")
-    city = properties.get("city")
-    state = properties.get("state")
-    country = properties.get("country")
-
-    for value in (name, city, state, country):
-        value = str(value or "").strip()
-
-        if value and value not in parts:
-            parts.append(value)
-
-    return ", ".join(parts) if parts else fallback
-
-
-def _geocode_with_photon(place):
-    """
-    Fallback geocoder using Photon.
-
-    Photon returns GeoJSON coordinates as [longitude, latitude].
-    """
-    response = HTTP_SESSION.get(
-        PHOTON_GEOCODE_URL,
-        params={
-            "q": place,
-            "limit": 1,
-            "countrycode": "IN"
-        },
-        timeout=12
-    )
-
-    response.raise_for_status()
-
-    payload = response.json()
-
-    features = payload.get("features", [])
-
-    if not features:
-        raise ValueError(
-            f"Photon could not locate: {place}"
-        )
-
-    feature = features[0]
-
-    geometry = feature.get("geometry", {})
-    coordinates = geometry.get("coordinates", [])
-
-    if (
-        not isinstance(coordinates, (list, tuple))
-        or len(coordinates) < 2
-    ):
-        raise ValueError(
-            f"Photon returned invalid coordinates for: {place}"
-        )
-
-    longitude = float(coordinates[0])
-    latitude = float(coordinates[1])
-
-    properties = feature.get("properties", {})
-
-    display_name = _photon_display_name(
-        properties,
-        place
-    )
-
-    return (
-        latitude,
-        longitude,
-        display_name
-    )
-
-
-def _known_place_fallback(place):
-    """
-    Last-resort coordinates for the main demo cities.
-
-    These are only used when both public geocoders are unavailable.
-    They are city-level fallbacks, not fabricated road observations.
-    """
-    normalized = (
-        str(place)
-        .strip()
-        .lower()
-    )
-
-    known_places = {
-        "vijayawada": (16.5062, 80.6480),
-        "chennai": (13.0827, 80.2707),
-        "guntur": (16.3067, 80.4365),
-        "visakhapatnam": (17.6868, 83.2185),
-        "hyderabad": (17.3850, 78.4867),
-        "tirupati": (13.6288, 79.4192),
-        "tenali": (16.2428, 80.6405),
-        "machilipatnam": (16.1875, 81.1389),
-        "nandigama": (16.7715, 80.2850),
-        "kanchikacherla": (16.6847, 80.3520),
-        "amaravati": (16.5742, 80.3575),
-        "bengaluru": (12.9716, 77.5946)
-    }
-
-    aliases = {
-        "vijayawada, vijayawada (urban)": "vijayawada",
-        "vijayawada, vijayawada (urban), ntr": "vijayawada",
-        "chennai corporation": "chennai",
-        "chennai, tamil nadu": "chennai",
-        "guntur, andhra pradesh": "guntur",
-        "visakhapatnam, andhra pradesh": "visakhapatnam",
-        "hyderabad, telangana": "hyderabad",
-        "tirupati, andhra pradesh": "tirupati",
-        "bengaluru, karnataka": "bengaluru"
-    }
-
-    if normalized in known_places:
-        return known_places[normalized]
-
-    if normalized in aliases:
-        return known_places[aliases[normalized]]
-
-    # Match common city names inside the full address returned by
-    # Android autocomplete.
-    for city, coordinates in known_places.items():
-        if (
-            normalized.startswith(city + ",")
-            or f", {city}," in normalized
-            or normalized.endswith(", " + city)
-        ):
-            return coordinates
-
-    for alias, city in aliases.items():
-        if alias in normalized:
-            return known_places[city]
-
-    return None
-
-
 def geocode_place(
     place,
     request_id=None,
     request_start=None
 ):
     """
-    Reliable forward geocoding.
+    Controlled Nominatim geocoder.
 
-    Order:
-        1. In-memory cache
-        2. Nominatim
-        3. Photon fallback
-        4. Known city fallback for the main demo cities
+    We intentionally do NOT use ox.geocode() here because
+    OSMnx can retry internally for a long time when Nominatim
+    responds slowly or with an error.
 
-    The important change is that a Nominatim 429 is NOT retried
-    repeatedly. We immediately move to Photon instead.
+    This function has:
+        - explicit timeout
+        - explicit User-Agent
+        - limited retry count
+        - India country restriction
     """
 
     if not place:
+
         raise ValueError(
             "Location cannot be empty."
         )
 
-    place = str(place).strip()
-    cache_key = place.lower()
-
-    # ------------------------------------------------------------
-    # CACHE
-    # ------------------------------------------------------------
-
-    cached = GEOCODE_CACHE.get(cache_key)
-
-    if cached is not None:
-        print(
-            f"Geocoding cache hit: {place}",
-            flush=True
-        )
-
-        return cached
 
     print(
         f"Geocoding location: {place}",
         flush=True
     )
 
-    # ------------------------------------------------------------
-    # 1. NOMINATIM
-    # ------------------------------------------------------------
 
-    nominatim_url = (
+    url = (
         "https://nominatim.openstreetmap.org/search"
     )
 
+
     params = {
-        "q": place,
-        "format": "json",
-        "addressdetails": 1,
-        "limit": 1,
-        "countrycodes": "in"
+
+        "q":
+            place,
+
+        "format":
+            "json",
+
+        "addressdetails":
+            1,
+
+        "limit":
+            1,
+
+        "countrycodes":
+            "in"
+
     }
 
-    nominatim_error = None
-    nominatim_rate_limited = False
 
-    try:
-        print(
-            "Nominatim attempt 1/1...",
-            flush=True
-        )
+    last_error = None
 
-        response = HTTP_SESSION.get(
-            nominatim_url,
-            params=params,
-            timeout=10
-        )
 
-        print(
-            f"Nominatim HTTP status: "
-            f"{response.status_code}",
-            flush=True
-        )
+    for attempt in range(1, 3):
 
-        if response.status_code == 429:
-            nominatim_rate_limited = True
+        try:
 
             print(
-                "Nominatim is rate-limiting the server (429). "
-                "Switching to Photon fallback.",
+                f"Nominatim attempt {attempt}/2...",
                 flush=True
             )
 
-        else:
+
+            response = HTTP_SESSION.get(
+
+                url,
+
+                params=params,
+
+                timeout=10
+
+            )
+
+
+            print(
+                f"Nominatim HTTP status: "
+                f"{response.status_code}",
+                flush=True
+            )
+
+
             response.raise_for_status()
+
 
             results = response.json()
 
-            if results:
-                first = results[0]
 
-                latitude = float(
-                    first["lat"]
+            if not results:
+
+                raise ValueError(
+                    f"Location not found: {place}"
                 )
 
-                longitude = float(
-                    first["lon"]
-                )
 
-                display_name = (
-                    first.get(
-                        "display_name",
-                        place
-                    )
-                    or place
-                )
+            first = results[0]
 
-                result = (
-                    latitude,
-                    longitude
-                )
 
-                _cache_geocode_result(
-                    place,
-                    latitude,
-                    longitude
-                )
-
-                print(
-                    f"Geocoded successfully: "
-                    f"{display_name}",
-                    flush=True
-                )
-
-                print(
-                    f"Coordinates: "
-                    f"{latitude:.6f}, "
-                    f"{longitude:.6f}",
-                    flush=True
-                )
-
-                return result
-
-            nominatim_error = ValueError(
-                f"Location not found by Nominatim: {place}"
+            latitude = float(
+                first["lat"]
             )
 
-    except requests.Timeout as e:
-        nominatim_error = e
 
-        print(
-            "Nominatim timed out. "
-            "Switching to Photon fallback.",
-            flush=True
-        )
+            longitude = float(
+                first["lon"]
+            )
 
-    except requests.RequestException as e:
-        nominatim_error = e
 
-        print(
-            f"Nominatim request error: {e}",
-            flush=True
-        )
+            display_name = (
+                first.get(
+                    "display_name",
+                    place
+                )
+                or place
+            )
 
-    except (
-        ValueError,
-        KeyError,
-        TypeError
-    ) as e:
-        nominatim_error = e
 
-        print(
-            f"Nominatim data error: {e}",
-            flush=True
-        )
+            print(
+                f"Geocoded successfully: "
+                f"{display_name}",
+                flush=True
+            )
 
-    # ------------------------------------------------------------
-    # 2. PHOTON FALLBACK
-    # ------------------------------------------------------------
 
-    try:
-        print(
-            "Photon fallback attempt...",
-            flush=True
-        )
+            print(
+                f"Coordinates: "
+                f"{latitude:.6f}, "
+                f"{longitude:.6f}",
+                flush=True
+            )
 
-        latitude, longitude, display_name = (
-            _geocode_with_photon(place)
-        )
 
-        _cache_geocode_result(
-            place,
-            latitude,
-            longitude
-        )
+            return (
+                latitude,
+                longitude
+            )
 
-        print(
-            f"Photon geocoding successful: "
-            f"{display_name}",
-            flush=True
-        )
 
-        print(
-            f"Photon coordinates: "
-            f"{latitude:.6f}, "
-            f"{longitude:.6f}",
-            flush=True
-        )
+        except requests.Timeout as e:
 
-        return (
-            latitude,
-            longitude
-        )
+            last_error = e
 
-    except Exception as photon_error:
-        print(
-            f"Photon geocoding failed: "
-            f"{photon_error}",
-            flush=True
-        )
+            print(
+                f"Nominatim timeout on attempt "
+                f"{attempt}.",
+                flush=True
+            )
 
-    # ------------------------------------------------------------
-    # 3. MAIN DEMO CITY FALLBACK
-    # ------------------------------------------------------------
 
-    known_coordinates = _known_place_fallback(
-        place
-    )
+        except requests.RequestException as e:
 
-    if known_coordinates is not None:
-        latitude, longitude = known_coordinates
+            last_error = e
 
-        _cache_geocode_result(
-            place,
-            latitude,
-            longitude
-        )
+            print(
+                f"Nominatim request error: "
+                f"{e}",
+                flush=True
+            )
 
-        print(
-            f"Using known city fallback for: "
-            f"{place}",
-            flush=True
-        )
 
-        print(
-            f"Fallback coordinates: "
-            f"{latitude:.6f}, "
-            f"{longitude:.6f}",
-            flush=True
-        )
+        except (
+            ValueError,
+            KeyError,
+            TypeError
+        ) as e:
 
-        return (
-            latitude,
-            longitude
-        )
+            last_error = e
 
-    # ------------------------------------------------------------
-    # COMPLETE FAILURE
-    # ------------------------------------------------------------
+            print(
+                f"Geocoding data error: "
+                f"{e}",
+                flush=True
+            )
 
-    if nominatim_rate_limited:
-        detail = (
-            "Nominatim returned HTTP 429 and "
-            "Photon fallback was also unavailable."
-        )
-    elif nominatim_error is not None:
-        detail = str(nominatim_error)
-    else:
-        detail = "No geocoding result was available."
+
+        if attempt < 2:
+
+            print(
+                "Waiting briefly before retry...",
+                flush=True
+            )
+
+            time.sleep(1)
+
 
     raise RuntimeError(
         f"Could not geocode '{place}'. "
-        f"{detail}"
-    )
+        f"Please try a more specific location."
+    ) from last_error
 
 
 # ============================================================
@@ -669,42 +419,37 @@ def get_road_network(
 ):
 
     """
-    Download only a corridor around the requested route.
+    Download the requested OSM road corridor in small overlapping
+    chunks instead of sending one large Overpass query.
 
-    This avoids downloading an unnecessarily large rectangular
-    OSM area.
+    The previous implementation requested the complete source ->
+    destination corridor in a single Overpass call. On Render this
+    could sit for 90 seconds and then repeat the same large request
+    with the bbox fallback.
+
+    This implementation keeps the existing 2 km corridor width and
+    graph-cache behavior, but divides long routes into manageable
+    overlapping chunks. It also tries two Overpass instances per
+    chunk so one slow public instance does not block the whole request.
     """
 
     straight_distance_km = haversine_km(
-
         source_lat,
         source_lon,
-
         destination_lat,
         destination_lon
-
     )
 
-
-    # --------------------------------------------------------
-    # ADAPTIVE CORRIDOR WIDTH
-    # --------------------------------------------------------
-
+    # Keep the existing corridor width used by the project.
     buffer_km = 2.0
 
-
     cache_key = make_graph_cache_key(
-
         source_lat,
         source_lon,
-
         destination_lat,
         destination_lon,
-
         buffer_km
-
     )
-
 
     # --------------------------------------------------------
     # CACHE
@@ -713,49 +458,35 @@ def get_road_network(
     if cache_key in GRAPH_CACHE:
 
         print_step(
-
             request_id,
             request_start,
-
             "STEP 5A - Using cached OSM road corridor"
-
         )
 
         return GRAPH_CACHE[cache_key]
 
-
     print_step(
-
         request_id,
         request_start,
-
         "STEP 5A - Downloading dynamic OSM road corridor"
-
     )
 
-
     print(
-
         f"\nStraight-line distance: "
         f"{straight_distance_km:.2f} km",
-
         flush=True
-
     )
-
 
     print(
-
         f"OSM corridor buffer: "
         f"{buffer_km:.2f} km",
-
         flush=True
-
     )
-
 
     network_start = time.perf_counter()
 
+    # networkx is used only here to merge the downloaded OSM chunks.
+    import networkx as nx
 
     # --------------------------------------------------------
     # CONVERT KM TO DEGREES
@@ -763,280 +494,326 @@ def get_road_network(
 
     buffer_lat = buffer_km / 111.0
 
-
     mean_lat = (
-
-        float(source_lat)
-
-        +
-
-        float(destination_lat)
-
+        float(source_lat) + float(destination_lat)
     ) / 2.0
 
-
     cos_lat = max(
-
         0.20,
-
-        abs(
-            math.cos(
-                math.radians(
-                    mean_lat
-                )
-            )
-        )
-
+        abs(math.cos(math.radians(mean_lat)))
     )
 
-
-    buffer_lon = (
-
-        buffer_km
-
-        /
-
-        (
-            111.0
-            *
-            cos_lat
-        )
-
-    )
-
+    buffer_lon = buffer_km / (111.0 * cos_lat)
 
     # --------------------------------------------------------
     # BUILD SOURCE -> DESTINATION LINE
     # --------------------------------------------------------
 
-    route_line = LineString(
+    route_line = LineString([
+        (
+            float(source_lon),
+            float(source_lat)
+        ),
+        (
+            float(destination_lon),
+            float(destination_lat)
+        )
+    ])
 
-        [
+    # --------------------------------------------------------
+    # CHUNK THE LONG CORRIDOR
+    # --------------------------------------------------------
+    # A maximum chunk length of 20 km keeps each Overpass request
+    # considerably smaller while retaining enough road context.
+    # Adjacent chunks overlap because every chunk gets the same
+    # 2 km corridor buffer.
 
-            (
-                float(source_lon),
-                float(source_lat)
-            ),
+    MAX_CHUNK_KM = 20.0
 
-            (
-                float(destination_lon),
-                float(destination_lat)
-            )
-
-        ]
-
+    chunk_count = max(
+        1,
+        int(math.ceil(straight_distance_km / MAX_CHUNK_KM))
     )
 
-
-    buffer_degrees = max(
-
-        buffer_lat,
-        buffer_lon
-
-    )
-
-
-    corridor_polygon = route_line.buffer(
-
-        buffer_degrees
-
-    )
-
+    # Avoid creating an excessive number of Overpass requests for
+    # very long journeys. For the normal project/demo routes this
+    # limit is not reached.
+    MAX_CHUNKS = 24
+    chunk_count = min(chunk_count, MAX_CHUNKS)
 
     print(
-
-        "Downloading OSM network inside route corridor...",
-
+        f"OSM download will use {chunk_count} overlapping chunk(s).",
         flush=True
-
     )
 
+    # These are tried in order. The current endpoint remains first,
+    # followed by another public Overpass instance as a fallback.
+    overpass_endpoints = [
+        "https://overpass.private.coffee/api",
+        "https://overpass.kumi.systems/api/interpreter"
+    ]
 
+    # Save the configured endpoint so the rest of the application is
+    # left in the same state after this function completes.
+    original_overpass_url = getattr(
+        ox.settings,
+        "overpass_url",
+        overpass_endpoints[0]
+    )
+
+    # Use a shorter per-query timeout. A failed chunk should move to
+    # the next endpoint rather than freezing the Android request for
+    # several minutes.
     try:
+        ox.settings.requests_timeout = 35
+    except Exception:
+        pass
 
-        G = ox.graph_from_polygon(
+    graphs = []
+    failed_chunks = []
 
-            corridor_polygon,
+    for chunk_index in range(chunk_count):
 
-            network_type="drive",
+        # --------------------------------------------------------
+        # CHUNK ENDPOINTS
+        # --------------------------------------------------------
 
-            simplify=True
+        start_fraction = chunk_index / chunk_count
+        end_fraction = (chunk_index + 1) / chunk_count
 
+        chunk_start = route_line.interpolate(
+            start_fraction,
+            normalized=True
+        )
+        chunk_end = route_line.interpolate(
+            end_fraction,
+            normalized=True
         )
 
+        chunk_line = LineString([
+            chunk_start.coords[0],
+            chunk_end.coords[0]
+        ])
 
-    except Exception as first_error:
+        chunk_polygon = chunk_line.buffer(
+            max(buffer_lat, buffer_lon)
+        )
+
+        minx, miny, maxx, maxy = chunk_polygon.bounds
+
+        # --------------------------------------------------------
+        # DOWNLOAD THIS CHUNK
+        # --------------------------------------------------------
 
         print(
-
-            "\nCorridor OSM download failed:",
-
-            str(first_error),
-
+            f"\nOSM chunk {chunk_index + 1}/{chunk_count}: "
+            f"downloading...",
             flush=True
-
         )
 
+        chunk_loaded = False
+        last_chunk_error = None
 
-        # ----------------------------------------------------
-        # COMPACT FALLBACK BBOX
-        # ----------------------------------------------------
+        for endpoint_index, endpoint in enumerate(overpass_endpoints):
 
-        fallback_padding = min(
+            try:
+                ox.settings.overpass_url = endpoint
 
-            0.05,
+                print(
+                    f"OSM chunk {chunk_index + 1}/{chunk_count}: "
+                    f"trying Overpass endpoint "
+                    f"{endpoint_index + 1}/{len(overpass_endpoints)}",
+                    flush=True
+                )
 
-            max(
+                G_chunk = ox.graph_from_polygon(
+                    chunk_polygon,
+                    network_type="drive",
+                    simplify=True
+                )
 
-                0.015,
+                if G_chunk is None or len(G_chunk.nodes) == 0:
+                    raise RuntimeError(
+                        "Overpass returned an empty road graph."
+                    )
 
-                buffer_degrees
+                graphs.append(G_chunk)
+                chunk_loaded = True
 
+                print(
+                    f"OSM chunk {chunk_index + 1}/{chunk_count}: "
+                    f"loaded {len(G_chunk.nodes)} nodes / "
+                    f"{len(G_chunk.edges)} edges.",
+                    flush=True
+                )
+
+                break
+
+            except Exception as chunk_error:
+
+                last_chunk_error = chunk_error
+
+                print(
+                    f"OSM chunk {chunk_index + 1}/{chunk_count}: "
+                    f"endpoint failed: {chunk_error}",
+                    flush=True
+                )
+
+        # --------------------------------------------------------
+        # SMALL BBOX FALLBACK FOR THIS CHUNK ONLY
+        # --------------------------------------------------------
+
+        if not chunk_loaded:
+
+            try:
+                # Use a small bbox around only this chunk. This is
+                # intentionally NOT the full source -> destination
+                # bbox that caused the earlier long wait.
+                print(
+                    f"OSM chunk {chunk_index + 1}/{chunk_count}: "
+                    f"trying compact bbox fallback...",
+                    flush=True
+                )
+
+                fallback_padding = max(
+                    0.008,
+                    min(0.025, max(buffer_lat, buffer_lon))
+                )
+
+                north = maxy + fallback_padding
+                south = miny - fallback_padding
+                east = maxx + fallback_padding
+                west = minx - fallback_padding
+
+                for endpoint_index, endpoint in enumerate(
+                    overpass_endpoints
+                ):
+
+                    try:
+                        ox.settings.overpass_url = endpoint
+
+                        print(
+                            f"OSM chunk {chunk_index + 1}/{chunk_count}: "
+                            f"bbox endpoint "
+                            f"{endpoint_index + 1}/{len(overpass_endpoints)}",
+                            flush=True
+                        )
+
+                        G_chunk = ox.graph_from_bbox(
+                            bbox=(
+                                west,
+                                south,
+                                east,
+                                north
+                            ),
+                            network_type="drive",
+                            simplify=True
+                        )
+
+                        if G_chunk is None or len(G_chunk.nodes) == 0:
+                            raise RuntimeError(
+                                "Overpass bbox returned an empty graph."
+                            )
+
+                        graphs.append(G_chunk)
+                        chunk_loaded = True
+
+                        print(
+                            f"OSM chunk {chunk_index + 1}/{chunk_count}: "
+                            f"bbox loaded {len(G_chunk.nodes)} nodes / "
+                            f"{len(G_chunk.edges)} edges.",
+                            flush=True
+                        )
+
+                        break
+
+                    except Exception as bbox_error:
+                        last_chunk_error = bbox_error
+                        print(
+                            f"OSM chunk {chunk_index + 1}/{chunk_count}: "
+                            f"bbox endpoint failed: {bbox_error}",
+                            flush=True
+                        )
+
+            except Exception as fallback_error:
+                last_chunk_error = fallback_error
+
+        if not chunk_loaded:
+
+            failed_chunks.append(
+                (
+                    chunk_index + 1,
+                    last_chunk_error
+                )
             )
 
-        )
-
-
-        north = (
-
-            max(
-
-                float(source_lat),
-                float(destination_lat)
-
+            print(
+                f"OSM chunk {chunk_index + 1}/{chunk_count}: "
+                f"FAILED after endpoint and bbox attempts.",
+                flush=True
             )
 
-            +
+    # Restore the original configured endpoint.
+    try:
+        ox.settings.overpass_url = original_overpass_url
+        ox.settings.requests_timeout = 90
+    except Exception:
+        pass
 
-            fallback_padding
+    # --------------------------------------------------------
+    # COMBINE SUCCESSFUL CHUNKS
+    # --------------------------------------------------------
 
+    if not graphs:
+        raise RuntimeError(
+            "OSM road network download failed: no corridor chunks "
+            "could be downloaded from the available Overpass servers."
         )
 
-
-        south = (
-
-            min(
-
-                float(source_lat),
-                float(destination_lat)
-
-            )
-
-            -
-
-            fallback_padding
-
+    if failed_chunks:
+        failed_numbers = ", ".join(
+            str(item[0]) for item in failed_chunks
         )
-
-
-        east = (
-
-            max(
-
-                float(source_lon),
-                float(destination_lon)
-
-            )
-
-            +
-
-            fallback_padding
-
-        )
-
-
-        west = (
-
-            min(
-
-                float(source_lon),
-                float(destination_lon)
-
-            )
-
-            -
-
-            fallback_padding
-
-        )
-
 
         print(
-
-            "Trying compact bbox fallback...",
-
+            f"OSM warning: failed chunk(s): {failed_numbers}. "
+            f"Continuing with successfully downloaded chunks.",
             flush=True
-
         )
 
+    print(
+        f"Combining {len(graphs)} OSM graph chunk(s)...",
+        flush=True
+    )
 
-        G = ox.graph_from_bbox(
-
-            bbox=(
-
-                west,
-                south,
-                east,
-                north
-
-            ),
-
-            network_type="drive",
-
-            simplify=True
-
-        )
-
+    G = nx.compose_all(graphs)
 
     network_time = (
-
-        time.perf_counter()
-
-        -
-
-        network_start
-
+        time.perf_counter() - network_start
     )
 
-
     print(
-
         f"\nOSM road network ready in "
         f"{network_time:.2f} seconds",
-
         flush=True
-
     )
 
-
     print(
-
         "Nodes:",
         len(G.nodes),
-
         flush=True
-
     )
-
 
     print(
-
         "Edges:",
         len(G.edges),
-
         flush=True
-
     )
 
-
     if len(G.nodes) == 0:
-
         raise RuntimeError(
-
             "OSM returned an empty road network."
-
         )
-
 
     # --------------------------------------------------------
     # CACHE GRAPH
@@ -1045,25 +822,17 @@ def get_road_network(
     if len(GRAPH_CACHE) >= MAX_GRAPH_CACHE_SIZE:
 
         oldest_key = next(
-
             iter(GRAPH_CACHE)
-
         )
 
         del GRAPH_CACHE[oldest_key]
 
-
     GRAPH_CACHE[cache_key] = G
 
-
     print(
-
         "OSM graph stored in memory cache.",
-
         flush=True
-
     )
-
 
     return G
 
@@ -1140,163 +909,66 @@ def health():
 
 @app.get("/suggest")
 def suggest_locations():
-    """
-    Location autocomplete.
-
-    Photon is used first because autocomplete can generate many
-    requests while the user is typing. This prevents the Android
-    search box from repeatedly consuming Nominatim's public quota.
-    Nominatim remains as a fallback.
-    """
 
     query = request.args.get(
         "q",
         ""
     ).strip()
 
+
     if len(query) < 2:
+
         return jsonify({
-            "suggestions": []
+
+            "suggestions":
+                []
+
         })
 
-    # ------------------------------------------------------------
-    # PHOTON FIRST
-    # ------------------------------------------------------------
 
     try:
+
         response = HTTP_SESSION.get(
-            PHOTON_GEOCODE_URL,
-            params={
-                "q": query,
-                "limit": 8,
-                "countrycode": "IN"
-            },
-            timeout=8
-        )
 
-        response.raise_for_status()
-
-        payload = response.json()
-
-        suggestions = []
-
-        for feature in payload.get(
-            "features",
-            []
-        ):
-            try:
-                geometry = feature.get(
-                    "geometry",
-                    {}
-                )
-
-                coordinates = geometry.get(
-                    "coordinates",
-                    []
-                )
-
-                if (
-                    not isinstance(
-                        coordinates,
-                        (list, tuple)
-                    )
-                    or len(coordinates) < 2
-                ):
-                    continue
-
-                longitude = float(
-                    coordinates[0]
-                )
-
-                latitude = float(
-                    coordinates[1]
-                )
-
-                properties = feature.get(
-                    "properties",
-                    {}
-                )
-
-                display_name = (
-                    _photon_display_name(
-                        properties,
-                        query
-                    )
-                ).strip()
-
-                if not display_name:
-                    continue
-
-                suggestions.append({
-                    "display_name":
-                        display_name,
-                    "latitude":
-                        latitude,
-                    "longitude":
-                        longitude
-                })
-
-            except (
-                ValueError,
-                TypeError,
-                KeyError,
-                IndexError
-            ):
-                continue
-
-        if suggestions:
-            return jsonify({
-                "status":
-                    "success",
-                "suggestions":
-                    suggestions
-            })
-
-    except Exception as e:
-        print(
-            "Photon suggestion error:",
-            str(e),
-            flush=True
-        )
-
-    # ------------------------------------------------------------
-    # NOMINATIM FALLBACK
-    # ------------------------------------------------------------
-
-    try:
-        response = HTTP_SESSION.get(
             "https://nominatim.openstreetmap.org/search",
+
             params={
-                "q": query,
-                "format": "json",
-                "addressdetails": 1,
-                "limit": 8,
-                "countrycodes": "in"
+
+                "q":
+                    query,
+
+                "format":
+                    "json",
+
+                "addressdetails":
+                    1,
+
+                "limit":
+                    8,
+
+                "countrycodes":
+                    "in"
+
             },
+
             timeout=8
+
         )
 
-        if response.status_code == 429:
-            print(
-                "Nominatim suggestions rate-limited (429).",
-                flush=True
-            )
-
-            return jsonify({
-                "status":
-                    "success",
-                "suggestions":
-                    []
-            })
 
         response.raise_for_status()
+
 
         results = response.json()
 
+
         suggestions = []
 
+
         for place in results:
+
             try:
+
                 latitude = float(
                     place["lat"]
                 )
@@ -1310,47 +982,71 @@ def suggest_locations():
                 TypeError,
                 KeyError
             ):
+
                 continue
 
+
             display_name = (
+
                 place.get(
                     "display_name",
                     ""
                 )
                 or ""
+
             ).strip()
 
+
             if not display_name:
+
                 continue
 
+
             suggestions.append({
+
                 "display_name":
                     display_name,
+
                 "latitude":
                     latitude,
+
                 "longitude":
                     longitude
+
             })
 
+
         return jsonify({
+
             "status":
                 "success",
+
             "suggestions":
                 suggestions
+
         })
 
+
     except Exception as e:
+
         print(
+
             "Suggestion error:",
             str(e),
+
             flush=True
+
         )
 
+
         return jsonify({
+
             "status":
                 "success",
+
             "suggestions":
                 []
+
         })
 
 
@@ -1360,174 +1056,145 @@ def suggest_locations():
 
 @app.get("/reverse")
 def reverse_location():
-    """
-    Reverse geocoding for the Android current-location feature.
-
-    Photon is attempted first, with Nominatim as a fallback.
-    """
 
     latitude = request.args.get(
         "lat",
         type=float
     )
 
+
     longitude = request.args.get(
         "lon",
         type=float
     )
+
 
     if (
         latitude is None
         or
         longitude is None
     ):
+
         return jsonify({
+
             "status":
                 "error",
+
             "message":
                 "Latitude and longitude are required."
+
         }), 400
+
 
     if not (
+
         -90 <= latitude <= 90
+
         and
+
         -180 <= longitude <= 180
+
     ):
+
         return jsonify({
+
             "status":
                 "error",
+
             "message":
                 "Invalid latitude or longitude."
+
         }), 400
 
-    # ------------------------------------------------------------
-    # PHOTON FIRST
-    # ------------------------------------------------------------
 
     try:
+
         response = HTTP_SESSION.get(
-            "https://photon.komoot.io/reverse",
-            params={
-                "lat": latitude,
-                "lon": longitude,
-                "limit": 1
-            },
-            timeout=8
-        )
 
-        response.raise_for_status()
-
-        payload = response.json()
-
-        features = payload.get(
-            "features",
-            []
-        )
-
-        if features:
-            properties = features[0].get(
-                "properties",
-                {}
-            )
-
-            display_name = _photon_display_name(
-                properties,
-                ""
-            )
-
-            if display_name:
-                return jsonify({
-                    "status":
-                        "success",
-                    "display_name":
-                        display_name,
-                    "latitude":
-                        latitude,
-                    "longitude":
-                        longitude
-                })
-
-    except Exception as e:
-        print(
-            "Photon reverse geocoding error:",
-            str(e),
-            flush=True
-        )
-
-    # ------------------------------------------------------------
-    # NOMINATIM FALLBACK
-    # ------------------------------------------------------------
-
-    try:
-        response = HTTP_SESSION.get(
             "https://nominatim.openstreetmap.org/reverse",
+
             params={
+
                 "lat":
                     latitude,
+
                 "lon":
                     longitude,
+
                 "format":
                     "json",
+
                 "addressdetails":
                     1,
+
                 "zoom":
                     18
+
             },
+
             timeout=8
+
         )
 
-        if response.status_code == 429:
-            return jsonify({
-                "status":
-                    "success",
-                "display_name":
-                    f"{latitude:.6f}, {longitude:.6f}",
-                "latitude":
-                    latitude,
-                "longitude":
-                    longitude
-            })
 
         response.raise_for_status()
+
 
         result = response.json()
 
+
         display_name = (
+
             result.get(
                 "display_name",
                 ""
             )
             or ""
+
         ).strip()
 
+
         return jsonify({
+
             "status":
                 "success",
+
             "display_name":
                 display_name,
+
             "latitude":
                 latitude,
+
             "longitude":
                 longitude
+
         })
+
 
     except Exception as e:
+
         print(
+
             "Reverse geocoding error:",
             str(e),
+
             flush=True
+
         )
 
+
         return jsonify({
+
             "status":
-                "success",
-            "display_name":
-                f"{latitude:.6f}, {longitude:.6f}",
-            "latitude":
-                latitude,
-            "longitude":
-                longitude
-        })
+                "error",
+
+            "message":
+                "Could not determine current location.",
+
+            "details":
+                str(e)
+
+        }), 500
 
 
 # ============================================================
