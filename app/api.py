@@ -107,6 +107,21 @@ AI_POINTS_CACHE = None
 
 
 # ============================================================
+# GEOCODING CACHE / FALLBACK SETTINGS
+# ============================================================
+
+# Keep successful geocoding results in memory so repeated Android
+# requests do not repeatedly hit public geocoding services.
+GEOCODE_CACHE = {}
+
+MAX_GEOCODE_CACHE_SIZE = 100
+
+# Photon is an OpenStreetMap-based geocoder used as a fallback when
+# Nominatim is rate-limited or unavailable.
+PHOTON_GEOCODE_URL = "https://photon.komoot.io/api/"
+
+
+# ============================================================
 # HELPER - TIMING
 # ============================================================
 
@@ -208,201 +223,436 @@ def haversine_km(
 # DIRECT NOMINATIM GEOCODING
 # ============================================================
 
+def _cache_geocode_result(place, latitude, longitude):
+    """Store a successful geocoding result with a bounded cache."""
+    key = str(place).strip().lower()
+
+    if not key:
+        return
+
+    if len(GEOCODE_CACHE) >= MAX_GEOCODE_CACHE_SIZE:
+        oldest_key = next(iter(GEOCODE_CACHE))
+        del GEOCODE_CACHE[oldest_key]
+
+    GEOCODE_CACHE[key] = (
+        float(latitude),
+        float(longitude)
+    )
+
+
+def _photon_display_name(properties, fallback):
+    """Build a readable place name from Photon properties."""
+    if not isinstance(properties, dict):
+        return fallback
+
+    parts = []
+
+    name = properties.get("name")
+    city = properties.get("city")
+    state = properties.get("state")
+    country = properties.get("country")
+
+    for value in (name, city, state, country):
+        value = str(value or "").strip()
+
+        if value and value not in parts:
+            parts.append(value)
+
+    return ", ".join(parts) if parts else fallback
+
+
+def _geocode_with_photon(place):
+    """
+    Fallback geocoder using Photon.
+
+    Photon returns GeoJSON coordinates as [longitude, latitude].
+    """
+    response = HTTP_SESSION.get(
+        PHOTON_GEOCODE_URL,
+        params={
+            "q": place,
+            "limit": 1,
+            "countrycode": "IN"
+        },
+        timeout=12
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    features = payload.get("features", [])
+
+    if not features:
+        raise ValueError(
+            f"Photon could not locate: {place}"
+        )
+
+    feature = features[0]
+
+    geometry = feature.get("geometry", {})
+    coordinates = geometry.get("coordinates", [])
+
+    if (
+        not isinstance(coordinates, (list, tuple))
+        or len(coordinates) < 2
+    ):
+        raise ValueError(
+            f"Photon returned invalid coordinates for: {place}"
+        )
+
+    longitude = float(coordinates[0])
+    latitude = float(coordinates[1])
+
+    properties = feature.get("properties", {})
+
+    display_name = _photon_display_name(
+        properties,
+        place
+    )
+
+    return (
+        latitude,
+        longitude,
+        display_name
+    )
+
+
+def _known_place_fallback(place):
+    """
+    Last-resort coordinates for the main demo cities.
+
+    These are only used when both public geocoders are unavailable.
+    They are city-level fallbacks, not fabricated road observations.
+    """
+    normalized = (
+        str(place)
+        .strip()
+        .lower()
+    )
+
+    known_places = {
+        "vijayawada": (16.5062, 80.6480),
+        "chennai": (13.0827, 80.2707),
+        "guntur": (16.3067, 80.4365),
+        "visakhapatnam": (17.6868, 83.2185),
+        "hyderabad": (17.3850, 78.4867),
+        "tirupati": (13.6288, 79.4192),
+        "tenali": (16.2428, 80.6405),
+        "machilipatnam": (16.1875, 81.1389),
+        "nandigama": (16.7715, 80.2850),
+        "kanchikacherla": (16.6847, 80.3520),
+        "amaravati": (16.5742, 80.3575),
+        "bengaluru": (12.9716, 77.5946)
+    }
+
+    aliases = {
+        "vijayawada, vijayawada (urban)": "vijayawada",
+        "vijayawada, vijayawada (urban), ntr": "vijayawada",
+        "chennai corporation": "chennai",
+        "chennai, tamil nadu": "chennai",
+        "guntur, andhra pradesh": "guntur",
+        "visakhapatnam, andhra pradesh": "visakhapatnam",
+        "hyderabad, telangana": "hyderabad",
+        "tirupati, andhra pradesh": "tirupati",
+        "bengaluru, karnataka": "bengaluru"
+    }
+
+    if normalized in known_places:
+        return known_places[normalized]
+
+    if normalized in aliases:
+        return known_places[aliases[normalized]]
+
+    # Match common city names inside the full address returned by
+    # Android autocomplete.
+    for city, coordinates in known_places.items():
+        if (
+            normalized.startswith(city + ",")
+            or f", {city}," in normalized
+            or normalized.endswith(", " + city)
+        ):
+            return coordinates
+
+    for alias, city in aliases.items():
+        if alias in normalized:
+            return known_places[city]
+
+    return None
+
+
 def geocode_place(
     place,
     request_id=None,
     request_start=None
 ):
     """
-    Controlled Nominatim geocoder.
+    Reliable forward geocoding.
 
-    We intentionally do NOT use ox.geocode() here because
-    OSMnx can retry internally for a long time when Nominatim
-    responds slowly or with an error.
+    Order:
+        1. In-memory cache
+        2. Nominatim
+        3. Photon fallback
+        4. Known city fallback for the main demo cities
 
-    This function has:
-        - explicit timeout
-        - explicit User-Agent
-        - limited retry count
-        - India country restriction
+    The important change is that a Nominatim 429 is NOT retried
+    repeatedly. We immediately move to Photon instead.
     """
 
     if not place:
-
         raise ValueError(
             "Location cannot be empty."
         )
 
+    place = str(place).strip()
+    cache_key = place.lower()
+
+    # ------------------------------------------------------------
+    # CACHE
+    # ------------------------------------------------------------
+
+    cached = GEOCODE_CACHE.get(cache_key)
+
+    if cached is not None:
+        print(
+            f"Geocoding cache hit: {place}",
+            flush=True
+        )
+
+        return cached
 
     print(
         f"Geocoding location: {place}",
         flush=True
     )
 
+    # ------------------------------------------------------------
+    # 1. NOMINATIM
+    # ------------------------------------------------------------
 
-    url = (
+    nominatim_url = (
         "https://nominatim.openstreetmap.org/search"
     )
 
-
     params = {
-
-        "q":
-            place,
-
-        "format":
-            "json",
-
-        "addressdetails":
-            1,
-
-        "limit":
-            1,
-
-        "countrycodes":
-            "in"
-
+        "q": place,
+        "format": "json",
+        "addressdetails": 1,
+        "limit": 1,
+        "countrycodes": "in"
     }
 
+    nominatim_error = None
+    nominatim_rate_limited = False
 
-    last_error = None
+    try:
+        print(
+            "Nominatim attempt 1/1...",
+            flush=True
+        )
 
+        response = HTTP_SESSION.get(
+            nominatim_url,
+            params=params,
+            timeout=10
+        )
 
-    for attempt in range(1, 3):
+        print(
+            f"Nominatim HTTP status: "
+            f"{response.status_code}",
+            flush=True
+        )
 
-        try:
+        if response.status_code == 429:
+            nominatim_rate_limited = True
 
             print(
-                f"Nominatim attempt {attempt}/2...",
+                "Nominatim is rate-limiting the server (429). "
+                "Switching to Photon fallback.",
                 flush=True
             )
 
-
-            response = HTTP_SESSION.get(
-
-                url,
-
-                params=params,
-
-                timeout=10
-
-            )
-
-
-            print(
-                f"Nominatim HTTP status: "
-                f"{response.status_code}",
-                flush=True
-            )
-
-
+        else:
             response.raise_for_status()
-
 
             results = response.json()
 
+            if results:
+                first = results[0]
 
-            if not results:
-
-                raise ValueError(
-                    f"Location not found: {place}"
+                latitude = float(
+                    first["lat"]
                 )
 
-
-            first = results[0]
-
-
-            latitude = float(
-                first["lat"]
-            )
-
-
-            longitude = float(
-                first["lon"]
-            )
-
-
-            display_name = (
-                first.get(
-                    "display_name",
-                    place
+                longitude = float(
+                    first["lon"]
                 )
-                or place
+
+                display_name = (
+                    first.get(
+                        "display_name",
+                        place
+                    )
+                    or place
+                )
+
+                result = (
+                    latitude,
+                    longitude
+                )
+
+                _cache_geocode_result(
+                    place,
+                    latitude,
+                    longitude
+                )
+
+                print(
+                    f"Geocoded successfully: "
+                    f"{display_name}",
+                    flush=True
+                )
+
+                print(
+                    f"Coordinates: "
+                    f"{latitude:.6f}, "
+                    f"{longitude:.6f}",
+                    flush=True
+                )
+
+                return result
+
+            nominatim_error = ValueError(
+                f"Location not found by Nominatim: {place}"
             )
 
+    except requests.Timeout as e:
+        nominatim_error = e
 
-            print(
-                f"Geocoded successfully: "
-                f"{display_name}",
-                flush=True
-            )
+        print(
+            "Nominatim timed out. "
+            "Switching to Photon fallback.",
+            flush=True
+        )
 
+    except requests.RequestException as e:
+        nominatim_error = e
 
-            print(
-                f"Coordinates: "
-                f"{latitude:.6f}, "
-                f"{longitude:.6f}",
-                flush=True
-            )
+        print(
+            f"Nominatim request error: {e}",
+            flush=True
+        )
 
+    except (
+        ValueError,
+        KeyError,
+        TypeError
+    ) as e:
+        nominatim_error = e
 
-            return (
-                latitude,
-                longitude
-            )
+        print(
+            f"Nominatim data error: {e}",
+            flush=True
+        )
 
+    # ------------------------------------------------------------
+    # 2. PHOTON FALLBACK
+    # ------------------------------------------------------------
 
-        except requests.Timeout as e:
+    try:
+        print(
+            "Photon fallback attempt...",
+            flush=True
+        )
 
-            last_error = e
+        latitude, longitude, display_name = (
+            _geocode_with_photon(place)
+        )
 
-            print(
-                f"Nominatim timeout on attempt "
-                f"{attempt}.",
-                flush=True
-            )
+        _cache_geocode_result(
+            place,
+            latitude,
+            longitude
+        )
 
+        print(
+            f"Photon geocoding successful: "
+            f"{display_name}",
+            flush=True
+        )
 
-        except requests.RequestException as e:
+        print(
+            f"Photon coordinates: "
+            f"{latitude:.6f}, "
+            f"{longitude:.6f}",
+            flush=True
+        )
 
-            last_error = e
+        return (
+            latitude,
+            longitude
+        )
 
-            print(
-                f"Nominatim request error: "
-                f"{e}",
-                flush=True
-            )
+    except Exception as photon_error:
+        print(
+            f"Photon geocoding failed: "
+            f"{photon_error}",
+            flush=True
+        )
 
+    # ------------------------------------------------------------
+    # 3. MAIN DEMO CITY FALLBACK
+    # ------------------------------------------------------------
 
-        except (
-            ValueError,
-            KeyError,
-            TypeError
-        ) as e:
+    known_coordinates = _known_place_fallback(
+        place
+    )
 
-            last_error = e
+    if known_coordinates is not None:
+        latitude, longitude = known_coordinates
 
-            print(
-                f"Geocoding data error: "
-                f"{e}",
-                flush=True
-            )
+        _cache_geocode_result(
+            place,
+            latitude,
+            longitude
+        )
 
+        print(
+            f"Using known city fallback for: "
+            f"{place}",
+            flush=True
+        )
 
-        if attempt < 2:
+        print(
+            f"Fallback coordinates: "
+            f"{latitude:.6f}, "
+            f"{longitude:.6f}",
+            flush=True
+        )
 
-            print(
-                "Waiting briefly before retry...",
-                flush=True
-            )
+        return (
+            latitude,
+            longitude
+        )
 
-            time.sleep(1)
+    # ------------------------------------------------------------
+    # COMPLETE FAILURE
+    # ------------------------------------------------------------
 
+    if nominatim_rate_limited:
+        detail = (
+            "Nominatim returned HTTP 429 and "
+            "Photon fallback was also unavailable."
+        )
+    elif nominatim_error is not None:
+        detail = str(nominatim_error)
+    else:
+        detail = "No geocoding result was available."
 
     raise RuntimeError(
         f"Could not geocode '{place}'. "
-        f"Please try a more specific location."
-    ) from last_error
+        f"{detail}"
+    )
 
 
 # ============================================================
@@ -890,66 +1140,163 @@ def health():
 
 @app.get("/suggest")
 def suggest_locations():
+    """
+    Location autocomplete.
+
+    Photon is used first because autocomplete can generate many
+    requests while the user is typing. This prevents the Android
+    search box from repeatedly consuming Nominatim's public quota.
+    Nominatim remains as a fallback.
+    """
 
     query = request.args.get(
         "q",
         ""
     ).strip()
 
-
     if len(query) < 2:
-
         return jsonify({
-
-            "suggestions":
-                []
-
+            "suggestions": []
         })
 
+    # ------------------------------------------------------------
+    # PHOTON FIRST
+    # ------------------------------------------------------------
 
     try:
-
         response = HTTP_SESSION.get(
-
-            "https://nominatim.openstreetmap.org/search",
-
+            PHOTON_GEOCODE_URL,
             params={
-
-                "q":
-                    query,
-
-                "format":
-                    "json",
-
-                "addressdetails":
-                    1,
-
-                "limit":
-                    8,
-
-                "countrycodes":
-                    "in"
-
+                "q": query,
+                "limit": 8,
+                "countrycode": "IN"
             },
-
             timeout=8
-
         )
-
 
         response.raise_for_status()
 
-
-        results = response.json()
-
+        payload = response.json()
 
         suggestions = []
 
+        for feature in payload.get(
+            "features",
+            []
+        ):
+            try:
+                geometry = feature.get(
+                    "geometry",
+                    {}
+                )
+
+                coordinates = geometry.get(
+                    "coordinates",
+                    []
+                )
+
+                if (
+                    not isinstance(
+                        coordinates,
+                        (list, tuple)
+                    )
+                    or len(coordinates) < 2
+                ):
+                    continue
+
+                longitude = float(
+                    coordinates[0]
+                )
+
+                latitude = float(
+                    coordinates[1]
+                )
+
+                properties = feature.get(
+                    "properties",
+                    {}
+                )
+
+                display_name = (
+                    _photon_display_name(
+                        properties,
+                        query
+                    )
+                ).strip()
+
+                if not display_name:
+                    continue
+
+                suggestions.append({
+                    "display_name":
+                        display_name,
+                    "latitude":
+                        latitude,
+                    "longitude":
+                        longitude
+                })
+
+            except (
+                ValueError,
+                TypeError,
+                KeyError,
+                IndexError
+            ):
+                continue
+
+        if suggestions:
+            return jsonify({
+                "status":
+                    "success",
+                "suggestions":
+                    suggestions
+            })
+
+    except Exception as e:
+        print(
+            "Photon suggestion error:",
+            str(e),
+            flush=True
+        )
+
+    # ------------------------------------------------------------
+    # NOMINATIM FALLBACK
+    # ------------------------------------------------------------
+
+    try:
+        response = HTTP_SESSION.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={
+                "q": query,
+                "format": "json",
+                "addressdetails": 1,
+                "limit": 8,
+                "countrycodes": "in"
+            },
+            timeout=8
+        )
+
+        if response.status_code == 429:
+            print(
+                "Nominatim suggestions rate-limited (429).",
+                flush=True
+            )
+
+            return jsonify({
+                "status":
+                    "success",
+                "suggestions":
+                    []
+            })
+
+        response.raise_for_status()
+
+        results = response.json()
+
+        suggestions = []
 
         for place in results:
-
             try:
-
                 latitude = float(
                     place["lat"]
                 )
@@ -963,71 +1310,47 @@ def suggest_locations():
                 TypeError,
                 KeyError
             ):
-
                 continue
 
-
             display_name = (
-
                 place.get(
                     "display_name",
                     ""
                 )
                 or ""
-
             ).strip()
 
-
             if not display_name:
-
                 continue
 
-
             suggestions.append({
-
                 "display_name":
                     display_name,
-
                 "latitude":
                     latitude,
-
                 "longitude":
                     longitude
-
             })
 
-
         return jsonify({
-
             "status":
                 "success",
-
             "suggestions":
                 suggestions
-
         })
 
-
     except Exception as e:
-
         print(
-
             "Suggestion error:",
             str(e),
-
             flush=True
-
         )
 
-
         return jsonify({
-
             "status":
                 "success",
-
             "suggestions":
                 []
-
         })
 
 
@@ -1037,145 +1360,174 @@ def suggest_locations():
 
 @app.get("/reverse")
 def reverse_location():
+    """
+    Reverse geocoding for the Android current-location feature.
+
+    Photon is attempted first, with Nominatim as a fallback.
+    """
 
     latitude = request.args.get(
         "lat",
         type=float
     )
 
-
     longitude = request.args.get(
         "lon",
         type=float
     )
-
 
     if (
         latitude is None
         or
         longitude is None
     ):
-
         return jsonify({
-
             "status":
                 "error",
-
             "message":
                 "Latitude and longitude are required."
-
         }), 400
-
 
     if not (
-
         -90 <= latitude <= 90
-
         and
-
         -180 <= longitude <= 180
-
     ):
-
         return jsonify({
-
             "status":
                 "error",
-
             "message":
                 "Invalid latitude or longitude."
-
         }), 400
 
+    # ------------------------------------------------------------
+    # PHOTON FIRST
+    # ------------------------------------------------------------
 
     try:
-
         response = HTTP_SESSION.get(
-
-            "https://nominatim.openstreetmap.org/reverse",
-
+            "https://photon.komoot.io/reverse",
             params={
-
-                "lat":
-                    latitude,
-
-                "lon":
-                    longitude,
-
-                "format":
-                    "json",
-
-                "addressdetails":
-                    1,
-
-                "zoom":
-                    18
-
+                "lat": latitude,
+                "lon": longitude,
+                "limit": 1
             },
-
             timeout=8
-
         )
-
 
         response.raise_for_status()
 
+        payload = response.json()
+
+        features = payload.get(
+            "features",
+            []
+        )
+
+        if features:
+            properties = features[0].get(
+                "properties",
+                {}
+            )
+
+            display_name = _photon_display_name(
+                properties,
+                ""
+            )
+
+            if display_name:
+                return jsonify({
+                    "status":
+                        "success",
+                    "display_name":
+                        display_name,
+                    "latitude":
+                        latitude,
+                    "longitude":
+                        longitude
+                })
+
+    except Exception as e:
+        print(
+            "Photon reverse geocoding error:",
+            str(e),
+            flush=True
+        )
+
+    # ------------------------------------------------------------
+    # NOMINATIM FALLBACK
+    # ------------------------------------------------------------
+
+    try:
+        response = HTTP_SESSION.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={
+                "lat":
+                    latitude,
+                "lon":
+                    longitude,
+                "format":
+                    "json",
+                "addressdetails":
+                    1,
+                "zoom":
+                    18
+            },
+            timeout=8
+        )
+
+        if response.status_code == 429:
+            return jsonify({
+                "status":
+                    "success",
+                "display_name":
+                    f"{latitude:.6f}, {longitude:.6f}",
+                "latitude":
+                    latitude,
+                "longitude":
+                    longitude
+            })
+
+        response.raise_for_status()
 
         result = response.json()
 
-
         display_name = (
-
             result.get(
                 "display_name",
                 ""
             )
             or ""
-
         ).strip()
 
-
         return jsonify({
-
             "status":
                 "success",
-
             "display_name":
                 display_name,
-
             "latitude":
                 latitude,
-
             "longitude":
                 longitude
-
         })
 
-
     except Exception as e:
-
         print(
-
             "Reverse geocoding error:",
             str(e),
-
             flush=True
-
         )
 
-
         return jsonify({
-
             "status":
-                "error",
-
-            "message":
-                "Could not determine current location.",
-
-            "details":
-                str(e)
-
-        }), 500
+                "success",
+            "display_name":
+                f"{latitude:.6f}, {longitude:.6f}",
+            "latitude":
+                latitude,
+            "longitude":
+                longitude
+        })
 
 
 # ============================================================
